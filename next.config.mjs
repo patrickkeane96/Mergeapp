@@ -31,7 +31,7 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: "/api/:path*",
+        source: "/api/openai-proxy/:path*",
         destination: "https://api.openai.com/:path*",
       },
     ];
