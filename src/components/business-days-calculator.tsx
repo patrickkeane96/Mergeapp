@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { format, addDays, isWeekend, parseISO, addBusinessDays } from "date-fns";
+import { format, addDays, isWeekend, parseISO, addBusinessDays, subBusinessDays } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,7 +89,9 @@ type ResultRow = {
   isStopClock?: boolean;
   isStopClockEnd?: boolean;
   isPhaseDecision?: boolean;
+  isPreAssessment?: boolean;
   stopClockDuration?: number;
+  extensionDays?: number; // Added for commitments extension
 };
 
 // Default date for calendar (January 1, 2026)
@@ -97,6 +99,9 @@ const DEFAULT_CALENDAR_DATE = new Date(2026, 0, 1);
 
 // Phase options
 type PhaseOption = "phase1" | "phase1and2";
+
+// Commitment phase options
+type CommitmentPhaseOption = "phase1" | "phase2";
 
 export function BusinessDaysCalculator() {
   const [filingDate, setFilingDate] = React.useState<Date | undefined>(undefined);
@@ -109,6 +114,11 @@ export function BusinessDaysCalculator() {
   const [stopClockPeriod, setStopClockPeriod] = React.useState<StopClockPeriod | undefined>(undefined);
   const [totalDays, setTotalDays] = React.useState<number>(0);
   const [phaseOption, setPhaseOption] = React.useState<PhaseOption>("phase1and2");
+  
+  // New state for commitments offered feature
+  const [commitmentsEnabled, setCommitmentsEnabled] = React.useState(false);
+  const [commitmentPhase, setCommitmentPhase] = React.useState<CommitmentPhaseOption>("phase1");
+  const [extensionDuration, setExtensionDuration] = React.useState<number>(10);
 
   // Calculate results when inputs change
   React.useEffect(() => {
@@ -124,6 +134,29 @@ export function BusinessDaysCalculator() {
     const newTimelineEvents: TimelineEvent[] = [];
     let stopClockApplied = false;
     let stopClockEndDate: Date | undefined;
+    let phase1ExtensionApplied = false;
+    let phase1ExtensionDays = 0;
+
+    // Add pre-assessment period if days > 0
+    if (preAssessmentDays > 0) {
+      const preAssessmentStartDate = subBusinessDays(filingDate, preAssessmentDays);
+      
+      // Add Pre-Assessment Start entry
+      newResults.push({
+        event: "Pre-Assessment Period Start",
+        day: -preAssessmentDays,
+        date: preAssessmentStartDate,
+        dayOfWeek: format(preAssessmentStartDate, "EEEE"),
+        isPreAssessment: true
+      });
+
+      newTimelineEvents.push({
+        event: "Pre-Assessment Start",
+        date: preAssessmentStartDate,
+        isPreAssessment: true,
+        day: -preAssessmentDays
+      });
+    }
 
     // Add filing date as first entry
     newResults.push({
@@ -146,6 +179,8 @@ export function BusinessDaysCalculator() {
     Object.entries(selectedMilestones).forEach(([name, days]) => {
       let calculatedDate = calculateBusinessDate(filingDate, days, holidays);
       let adjustedDays = days;
+      let extensionApplied = false;
+      let extensionDays = 0;
       
       // Apply stop clock if enabled and milestone is after stop clock date
       if (stopClockEnabled && stopClockDate && calculatedDate >= stopClockDate) {
@@ -201,6 +236,38 @@ export function BusinessDaysCalculator() {
         adjustedDays += stopClockDuration;
       }
       
+      // Apply commitments extension if enabled
+      if (commitmentsEnabled) {
+        // For Phase 1 determination
+        if (commitmentPhase === "phase1" && name === "Phase 1 determination") {
+          // Extend the determination date by the extension duration
+          calculatedDate = calculateBusinessDate(calculatedDate, extensionDuration, holidays);
+          adjustedDays += extensionDuration;
+          extensionApplied = true;
+          extensionDays = extensionDuration;
+          
+          // Remember that Phase 1 was extended for subsequent milestones
+          phase1ExtensionApplied = true;
+          phase1ExtensionDays = extensionDuration;
+        } 
+        // For Phase 2 determination
+        else if (commitmentPhase === "phase2" && name === "Phase 2 determination") {
+          // Extend the determination date by the extension duration
+          calculatedDate = calculateBusinessDate(calculatedDate, extensionDuration, holidays);
+          adjustedDays += extensionDuration;
+          extensionApplied = true;
+          extensionDays = extensionDuration;
+        }
+        // For all milestones after Phase 1 determination if Phase 1 was extended
+        else if (phase1ExtensionApplied && days > milestones["Phase 1 determination"]) {
+          // Extend all subsequent milestones by the Phase 1 extension duration
+          calculatedDate = calculateBusinessDate(calculatedDate, phase1ExtensionDays, holidays);
+          adjustedDays += phase1ExtensionDays;
+          extensionApplied = true;
+          extensionDays = phase1ExtensionDays;
+        }
+      }
+      
       // Check if this is a phase determination date
       const isPhaseDecision = name.includes("Phase 1 determination") || name.includes("Phase 2 determination");
       
@@ -209,14 +276,16 @@ export function BusinessDaysCalculator() {
         day: adjustedDays,
         date: calculatedDate,
         dayOfWeek: format(calculatedDate, "EEEE"),
-        isPhaseDecision
+        isPhaseDecision,
+        extensionDays: extensionApplied ? extensionDays : undefined
       });
 
       newTimelineEvents.push({
         event: name,
         date: calculatedDate,
         isPhaseDecision,
-        day: adjustedDays
+        day: adjustedDays,
+        extensionDays: extensionApplied ? extensionDays : undefined
       });
     });
     
@@ -239,7 +308,7 @@ export function BusinessDaysCalculator() {
       const lastResult = newResults[newResults.length - 1];
       setTotalDays(preAssessmentDays + lastResult.day);
     }
-  }, [filingDate, stopClockEnabled, stopClockDate, stopClockDuration, preAssessmentDays, phaseOption]);
+  }, [filingDate, stopClockEnabled, stopClockDate, stopClockDuration, preAssessmentDays, phaseOption, commitmentsEnabled, commitmentPhase, extensionDuration]);
 
   return (
     <div className="w-full max-w-[1600px] mx-auto">
@@ -256,7 +325,13 @@ export function BusinessDaysCalculator() {
                 <Label htmlFor="phase-option">Anticipated Transaction Complexity</Label>
                 <Select 
                   value={phaseOption} 
-                  onValueChange={(value: string) => setPhaseOption(value as PhaseOption)}
+                  onValueChange={(value: string) => {
+                    setPhaseOption(value as PhaseOption);
+                    // If changing to Phase 1 Only and commitment phase is set to phase2, reset to phase1
+                    if (value === "phase1" && commitmentPhase === "phase2") {
+                      setCommitmentPhase("phase1");
+                    }
+                  }}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select phase option" />
@@ -268,19 +343,7 @@ export function BusinessDaysCalculator() {
                 </Select>
               </div>
 
-              {/* Pre-Assessment Days */}
-              <div className="space-y-2">
-                <Label htmlFor="pre-assessment">Pre-Assessment Days</Label>
-                <Input
-                  id="pre-assessment"
-                  type="number"
-                  min="0"
-                  value={preAssessmentDays}
-                  onChange={(e) => setPreAssessmentDays(parseInt(e.target.value) || 0)}
-                />
-              </div>
-
-              {/* Filing Date Picker */}
+              {/* Filing Date Picker - Moved before Pre-Assessment Days */}
               <div className="space-y-2">
                 <Label htmlFor="filing-date">Filing Date</Label>
                 <Popover>
@@ -316,6 +379,18 @@ export function BusinessDaysCalculator() {
                 </Popover>
               </div>
 
+              {/* Pre-Assessment Days - Moved after Filing Date */}
+              <div className="space-y-2">
+                <Label htmlFor="pre-assessment">Pre-Assessment Days</Label>
+                <Input
+                  id="pre-assessment"
+                  type="number"
+                  min="0"
+                  value={preAssessmentDays}
+                  onChange={(e) => setPreAssessmentDays(parseInt(e.target.value) || 0)}
+                />
+              </div>
+
               {/* Stop Clock Controls - with added spacing */}
               <div className="space-y-2 pt-2">
                 <div className="flex items-center space-x-2">
@@ -332,14 +407,14 @@ export function BusinessDaysCalculator() {
                     }}
                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
-                  <Label htmlFor="stop-clock">Enable Stop Clock</Label>
+                  <Label htmlFor="stop-clock">Clock Stopped</Label>
                 </div>
 
                 {stopClockEnabled && (
                   <div className="space-y-4 pl-6 mt-2">
                     {/* Stop Clock Start Date */}
                     <div className="space-y-2">
-                      <Label htmlFor="stop-clock-date">Stop Clock Start Date</Label>
+                      <Label htmlFor="stop-clock-date">Stop Clock Start</Label>
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
@@ -384,6 +459,64 @@ export function BusinessDaysCalculator() {
                   </div>
                 )}
               </div>
+
+              {/* Commitments Offered Controls */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="commitments-offered" 
+                    checked={commitmentsEnabled}
+                    onChange={(e) => {
+                      setCommitmentsEnabled(e.target.checked);
+                      if (!e.target.checked) {
+                        setExtensionDuration(10);
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <Label htmlFor="commitments-offered">Commitments Offered</Label>
+                </div>
+
+                {commitmentsEnabled && (
+                  <div className="space-y-4 pl-6 mt-2">
+                    {/* Phase in which commitment offered */}
+                    <div className="space-y-2">
+                      <Label htmlFor="commitment-phase">Phase in which commitments are offered</Label>
+                      <Select 
+                        value={commitmentPhase} 
+                        onValueChange={(value: string) => setCommitmentPhase(value as CommitmentPhaseOption)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select phase" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="phase1">Phase One</SelectItem>
+                          {phaseOption === "phase1and2" && (
+                            <SelectItem value="phase2">Phase Two</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Extension Duration */}
+                    <div className="space-y-2">
+                      <Label htmlFor="extension-duration">Duration of extension (1-15 days)</Label>
+                      <Input
+                        id="extension-duration"
+                        type="number"
+                        min="1"
+                        max="15"
+                        value={extensionDuration}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value) || 0;
+                          setExtensionDuration(Math.min(Math.max(value, 1), 15)); // Clamp between 1 and 15
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -407,7 +540,7 @@ export function BusinessDaysCalculator() {
         <div className="lg:col-span-3">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>Merger Control Timeline</CardTitle>
+              <CardTitle>Merger Regime Date Calculator</CardTitle>
             </CardHeader>
             <CardContent>
               {results.length > 0 ? (
@@ -440,6 +573,7 @@ export function BusinessDaysCalculator() {
                           <TableRow 
                             key={index} 
                             className={cn(
+                              row.isPreAssessment ? "text-purple-500 font-medium" : "",
                               (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
                               row.isPhaseDecision ? "text-blue-500 font-medium" : ""
                             )}
@@ -447,6 +581,7 @@ export function BusinessDaysCalculator() {
                             <TableCell className="font-medium">
                               {row.event}
                               {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
+                              {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
                             </TableCell>
                             <TableCell>{row.day}</TableCell>
                             <TableCell>{format(row.date, "d MMMM yyyy")}</TableCell>

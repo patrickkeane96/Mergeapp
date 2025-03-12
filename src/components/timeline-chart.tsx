@@ -40,6 +40,7 @@ export type TimelineEvent = {
   isPhaseDecision?: boolean;
   isPreAssessment?: boolean;
   day?: number; // Add day property
+  extensionDays?: number; // Add extension days property for commitments
 };
 
 // Type for stop clock period
@@ -82,24 +83,10 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
   const firstDate = sortedEvents[0].date;
   const lastDate = sortedEvents[sortedEvents.length - 1].date;
   
-  // Add pre-assessment start date if preAssessmentDays > 0
-  let preAssessmentStartDate: Date | null = null;
+  // Use the sorted events directly without adding another pre-assessment event
   let allEvents = [...sortedEvents];
   
-  if (preAssessmentDays > 0 && firstDate) {
-    // Calculate pre-assessment start date (business days before filing date)
-    preAssessmentStartDate = subBusinessDays(firstDate, preAssessmentDays);
-    
-    // Add pre-assessment start event
-    allEvents.unshift({
-      event: "Pre-Assessment Start",
-      date: preAssessmentStartDate,
-      isPreAssessment: true,
-      day: -preAssessmentDays
-    });
-  }
-  
-  // Get the actual first and last dates after adding pre-assessment
+  // Get the actual first and last dates
   const actualFirstDate = allEvents[0].date;
   const actualLastDate = allEvents[allEvents.length - 1].date;
   
@@ -126,6 +113,7 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
   
   // Find filing date and last event for timeline segments
   const filingDateEvent = allEvents.find(event => event.event === "Filing Date");
+  const preAssessmentEvent = allEvents.find(event => event.isPreAssessment);
   const filingDatePos = filingDateEvent ? daysFromStart(filingDateEvent.date) / totalDays * (labels.length - 1) : 0;
   const lastEventPos = daysFromStart(actualLastDate) / totalDays * (labels.length - 1);
   
@@ -171,13 +159,13 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
   };
 
   // Add pre-assessment line if applicable
-  if (preAssessmentStartDate && filingDateEvent) {
-    const preAssessmentStartPos = daysFromStart(preAssessmentStartDate) / totalDays * (labels.length - 1);
+  if (preAssessmentEvent && filingDateEvent) {
+    const preAssessmentPos = daysFromStart(preAssessmentEvent.date) / totalDays * (labels.length - 1);
     
     timelineData.datasets.push({
       label: "Pre-Assessment Period",
       data: [
-        { x: preAssessmentStartPos, y: 1 },
+        { x: preAssessmentPos, y: 1 },
         { x: filingDatePos, y: 1 }
       ],
       borderColor: "rgba(147, 112, 219, 1)", // Purple for pre-assessment
@@ -258,9 +246,9 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
              event.isStopClock ? 'rgba(255, 99, 132, 1)' :
              event.isPreAssessment ? 'rgba(147, 112, 219, 1)' : // Purple for pre-assessment
              "rgba(75, 192, 192, 1)",
-      rotation: -45, // Angle the labels from bottom right to top left
+      rotation: 45, // Angle the labels from bottom left to top right
       textAlign: 'center',
-      padding: 0,
+      padding: 5,
       position: {
         x: 'center'
       },
@@ -343,9 +331,9 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
         weight: 'normal',
       },
       color: 'rgba(255, 99, 132, 1)',
-      rotation: -45,
+      rotation: 45,
       textAlign: 'center',
-      padding: 0,
+      padding: 5,
       position: {
         x: 'center'
       },
@@ -410,6 +398,10 @@ export function TimelineChart({ events, stopClockPeriod, preAssessmentDays }: Ti
               let label = format(event.date, "d MMMM yyyy");
               if (event.day !== undefined) {
                 label += ` (Day ${event.day})`;
+              }
+              // Add extension information if applicable
+              if (event.extensionDays) {
+                label += ` - Extended by ${event.extensionDays} days due to remedy proposal`;
               }
               return label;
             } else if (datasetIndex === 4 && stopClockPeriod) { // Stop Clock End dataset
