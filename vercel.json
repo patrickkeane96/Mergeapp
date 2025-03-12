@@ -2,7 +2,23 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
+  "framework": "nextjs",
   "routes": [
-    { "src": "/(.*)", "dest": "/" }
+    {
+      "src": "/(.*)",
+      "dest": "/$1",
+      "continue": true
+    },
+    {
+      "src": "/(api|_next|static)/(.*)",
+      "dest": "/$1/$2"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index"
+    }
   ]
 } 
