@@ -119,6 +119,11 @@ export function BusinessDaysCalculator() {
   const [phaseOption, setPhaseOption] = React.useState<PhaseOption>("phase1and2");
   const [isGeneratingPDF, setIsGeneratingPDF] = React.useState(false);
   
+  // New state for AI summary
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = React.useState(false);
+  const [aiSummaryError, setAiSummaryError] = React.useState<string | null>(null);
+  
   // References for PDF export
   const timelineRef = React.useRef<HTMLDivElement>(null);
   const tableRef = React.useRef<HTMLDivElement>(null);
@@ -486,6 +491,175 @@ export function BusinessDaysCalculator() {
     }
   };
 
+  // New function to generate PDF for AI summary
+  const generatePDFForAI = async (): Promise<string | null> => {
+    if (!results.length) return null;
+    
+    try {
+      // Create a new PDF document
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+      
+      // Page 1: Timeline and Results Table
+      if (timelineRef.current && tableRef.current) {
+        // Capture timeline
+        const timelineCanvas = await html2canvas(timelineRef.current, {
+          scale: 2,
+          logging: false,
+          useCORS: true
+        });
+        
+        const timelineImgData = timelineCanvas.toDataURL('image/png');
+        
+        // Add timeline to PDF (centered)
+        const timelineImgWidth = 180; // mm, A4 width is 210mm
+        const timelineImgHeight = (timelineCanvas.height * timelineImgWidth) / timelineCanvas.width;
+        const timelineX = (210 - timelineImgWidth) / 2; // Center horizontally
+        const timelineY = 20; // Top margin
+        
+        pdf.addImage(timelineImgData, 'PNG', timelineX, timelineY, timelineImgWidth, timelineImgHeight);
+        
+        // Capture results table
+        const tableCanvas = await html2canvas(tableRef.current, {
+          scale: 2,
+          logging: false,
+          useCORS: true
+        });
+        
+        const tableImgData = tableCanvas.toDataURL('image/png');
+        
+        // Add table to PDF (centered)
+        const tableImgWidth = 180; // mm
+        const tableImgHeight = (tableCanvas.height * tableImgWidth) / tableCanvas.width;
+        const tableX = (210 - tableImgWidth) / 2; // Center horizontally
+        const tableY = timelineY + timelineImgHeight + 10; // Below timeline
+        
+        pdf.addImage(tableImgData, 'PNG', tableX, tableY, tableImgWidth, tableImgHeight);
+      }
+      
+      // Page 2: Input Parameters - Create a custom formatted page instead of capturing the DOM
+      pdf.addPage();
+      
+      // Set font styles
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(16);
+      
+      // Add title
+      pdf.text("Input Parameters", 105, 20, { align: "center" });
+      
+      // Set font for parameter labels
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      
+      // Starting position for parameters
+      const startX = 30;
+      let currentY = 40;
+      const lineHeight = 10;
+      
+      // Function to add a parameter with label and value
+      const addParameter = (label: string, value: string) => {
+        pdf.setFont("helvetica", "bold");
+        pdf.text(label + ":", startX, currentY);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(value, startX + 80, currentY);
+        currentY += lineHeight;
+      };
+      
+      // Add all parameters
+      addParameter("Transaction Complexity", phaseOption === "phase1" ? "Phase 1 Only" : "Phase 1 and Phase 2");
+      
+      if (filingDate) {
+        addParameter("Filing Date", format(filingDate, "d MMMM yyyy"));
+      } else {
+        addParameter("Filing Date", "Not set");
+      }
+      
+      addParameter("Pre-Assessment Days", preAssessmentDays.toString());
+      
+      // Add stop clock information if enabled
+      addParameter("Clock Stopped", stopClockEnabled ? "Yes" : "No");
+      
+      if (stopClockEnabled) {
+        currentY += 2; // Add a little extra space
+        
+        if (stopClockDate) {
+          addParameter("  Stop Clock Start", format(stopClockDate, "d MMMM yyyy"));
+        } else {
+          addParameter("  Stop Clock Start", "Not set");
+        }
+        
+        addParameter("  Stop Clock Duration", `${stopClockDuration} days`);
+        
+        currentY += 2; // Add a little extra space
+      }
+      
+      // Add commitments information if enabled
+      addParameter("Commitments Offered", commitmentsEnabled ? "Yes" : "No");
+      
+      if (commitmentsEnabled) {
+        currentY += 2; // Add a little extra space
+        
+        addParameter("  Phase", commitmentPhase === "phase1" ? "Phase One" : "Phase Two");
+        addParameter("  Extension Duration", `${extensionDuration} days`);
+      }
+      
+      // Add total timeline days
+      currentY += 5; // Add more space before total
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.text("Total Timeline:", startX, currentY);
+      pdf.text(`${totalDays} days`, startX + 80, currentY);
+      
+      // Convert PDF to base64
+      const pdfBase64 = pdf.output('datauristring');
+      // Extract the base64 part after the data URI prefix
+      return pdfBase64.split(',')[1];
+    } catch (error) {
+      console.error('Error generating PDF for AI:', error);
+      return null;
+    }
+  };
+
+  // Function to generate AI summary
+  const generateAiSummary = async () => {
+    setIsGeneratingAiSummary(true);
+    setAiSummaryError(null);
+    
+    try {
+      // Generate PDF for AI
+      const pdfBase64 = await generatePDFForAI();
+      
+      if (!pdfBase64) {
+        throw new Error("Failed to generate PDF for AI analysis");
+      }
+      
+      // Call Gemini API
+      const response = await fetch('/api/gemini/summarize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pdfBase64 }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate AI summary");
+      }
+      
+      const data = await response.json();
+      setAiSummary(data.summary);
+    } catch (error) {
+      console.error('Error generating AI summary:', error);
+      setAiSummaryError((error as Error).message);
+    } finally {
+      setIsGeneratingAiSummary(false);
+    }
+  };
+
   // Function to determine if today falls between two dates
   const isTodayBetween = (prevDate: Date, nextDate: Date) => {
     const today = new Date();
@@ -704,17 +878,68 @@ export function BusinessDaysCalculator() {
 
           {/* Total Days Counter - Light Theme */}
           {results.length > 0 && (
-            <Card className="border shadow-sm">
-              <CardHeader className="pb-2 pt-6">
-                <CardTitle className="text-center text-lg">Total Timeline</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 pb-6">
-                <div className="flex flex-col items-center justify-center">
-                  <span className="text-6xl font-bold text-primary">{totalDays}</span>
-                  <span className="text-sm mt-1 text-muted-foreground">days</span>
-                </div>
-              </CardContent>
-            </Card>
+            <>
+              <Card className="border shadow-sm mb-6">
+                <CardHeader className="pb-2 pt-6">
+                  <CardTitle className="text-center text-lg">Total Timeline</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 pb-6">
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="text-6xl font-bold text-primary">{totalDays}</span>
+                    <span className="text-sm mt-1 text-muted-foreground">days</span>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* AI Summary Card */}
+              <Card className="border shadow-sm">
+                <CardHeader className="pb-2 pt-6">
+                  <CardTitle className="text-center text-lg">AI Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 pb-6">
+                  {!aiSummary && !isGeneratingAiSummary && !aiSummaryError && (
+                    <div className="flex flex-col items-center justify-center">
+                      <Button 
+                        onClick={generateAiSummary}
+                        className="mt-2"
+                      >
+                        Generate AI Summary
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {isGeneratingAiSummary && (
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="animate-pulse text-center text-muted-foreground">
+                        Generating summary...
+                      </div>
+                    </div>
+                  )}
+                  
+                  {aiSummaryError && (
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="text-center text-red-500 text-sm">
+                        {aiSummaryError}
+                      </div>
+                      <Button 
+                        onClick={generateAiSummary}
+                        className="mt-2"
+                        variant="outline"
+                        size="sm"
+                      >
+                        Try Again
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {aiSummary && (
+                    <div className="text-sm text-muted-foreground">
+                      {aiSummary}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
 

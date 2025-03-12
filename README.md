@@ -10,6 +10,8 @@ A sophisticated web application for calculating and visualizing merger control t
 - **Stop Clock Functionality**: Add stop clock periods with customizable durations
 - **Business Day Calculation**: Automatically accounts for weekends and holidays
 - **Total Timeline Counter**: Track the total duration of the merger control process
+- **PDF Export**: Generate and download a PDF report of the timeline and parameters
+- **AI Summary**: Generate a concise summary of the merger review status using Google's Gemini AI
 
 ## Getting Started
 
@@ -17,6 +19,7 @@ A sophisticated web application for calculating and visualizing merger control t
 
 - Node.js 18.x or higher
 - npm or yarn
+- Google Gemini API key (for AI summary feature)
 
 ### Installation
 
@@ -33,14 +36,21 @@ A sophisticated web application for calculating and visualizing merger control t
    yarn install
    ```
 
-3. Start the development server
+3. Set up environment variables
+   Create a `.env.local` file in the root directory with the following variables:
+   ```
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+   You can obtain a Gemini API key from [Google AI Studio](https://ai.google.dev/).
+
+4. Start the development server
    ```
    npm run dev
    # or
    yarn dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ## Usage
 
@@ -49,6 +59,8 @@ A sophisticated web application for calculating and visualizing merger control t
 3. Select the filing date using the calendar picker
 4. Enable stop clock if needed and configure its start date and duration
 5. View the generated timeline visualization and detailed event table
+6. Click "Export PDF" to download a PDF report of the timeline
+7. Click "Generate AI Summary" to get a concise summary of the merger review status
 
 ## Technologies Used
 
@@ -59,3 +71,5 @@ A sophisticated web application for calculating and visualizing merger control t
 - shadcn/ui
 - Chart.js
 - date-fns
+- jsPDF
+- Google Generative AI (Gemini)
