@@ -2,17 +2,10 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { StreamingTextResponse } from "ai";
 
-// Set body parser config to allow larger payloads
-export const config = {
-  api: {
-    // Increase the body parser size limit (default is 1mb)
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-    // Increase the response size limit
-    responseLimit: '10mb',
-  },
-};
+// Use the new route segment config format for Next.js 14
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Set maximum duration to 60 seconds
 
 // Initialize the Gemini API client
 let genAI: GoogleGenerativeAI | null = null;
