@@ -2,11 +2,6 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { StreamingTextResponse } from "ai";
 
-// Use the new route segment config format for Next.js 14
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Set maximum duration to 60 seconds
-
 // Initialize the Gemini API client
 let genAI: GoogleGenerativeAI | null = null;
 try {
@@ -36,56 +31,38 @@ function geminiStreamToReadableStream(geminiStream: AsyncGenerator<any, any, unk
   });
 }
 
-// Helper function to validate and parse request body
-async function parseRequestBody(request: Request) {
-  try {
-    return await request.json();
-  } catch (error) {
-    throw new Error("Invalid request body: Could not parse JSON");
-  }
-}
-
 export async function POST(request: Request) {
+  // Check if API key is missing or is the placeholder
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+    return NextResponse.json(
+      { 
+        error: "Gemini API key is not configured. Please add your API key to the .env.local file. You can get a key from https://ai.google.dev/" 
+      },
+      { status: 501 }
+    );
+  }
+  
+  // Check if API client initialization failed
+  if (!genAI) {
+    return NextResponse.json(
+      { 
+        error: "Failed to initialize Gemini client. Please check that your API key is valid." 
+      },
+      { status: 501 }
+    );
+  }
+
   try {
-    // Check if API key is missing or is the placeholder
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
-      return NextResponse.json(
-        { 
-          error: "Gemini API key is not configured. Please add your API key to the .env.local file. You can get a key from https://ai.google.dev/" 
-        },
-        { status: 501 }
-      );
-    }
-    
-    // Check if API client initialization failed
-    if (!genAI) {
-      return NextResponse.json(
-        { 
-          error: "Failed to initialize Gemini client. Please check that your API key is valid." 
-        },
-        { status: 501 }
-      );
-    }
-
-    // Check request size
-    const contentLength = request.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 9.5 * 1024 * 1024) { // 9.5MB limit
-      return NextResponse.json(
-        { error: "Request payload too large. Please reduce the size of your input." },
-        { status: 413 }
-      );
-    }
-
-    // Parse request body with error handling
-    const { pdfBase64, customPrompt, followUpQuestion, previousSummary, chatHistory } = await parseRequestBody(request);
-    
-    // Check PDF size if present
-    if (pdfBase64 && pdfBase64.length > 9 * 1024 * 1024) { // 9MB limit
-      return NextResponse.json(
-        { error: "PDF file too large. Please reduce the size of your timeline." },
-        { status: 413 }
-      );
-    }
+    const { 
+      pdfBase64, 
+      customPrompt, 
+      followUpQuestion, 
+      previousSummary, 
+      chatHistory,
+      // New text-based parameters
+      timelineData,
+      inputParams
+    } = await request.json();
     
     // Handle follow-up questions using chat capabilities
     if (followUpQuestion && previousSummary) {
@@ -119,42 +96,61 @@ export async function POST(request: Request) {
         },
       });
       
-      try {
-        // Send the follow-up question with streaming, including the legal expert instruction in the prompt
-        const result = await chat.sendMessageStream(
-          `${legalExpertInstruction}\n\nBased on the merger review timeline I shared earlier, please answer this question in 200 words or less, taking into account what major law firms and the ACCC say on this topic, focusing on the upcoming merger reforms and their procedural timeframes - but your focus no matter what should be on answering questions by reference to documents already provided to you where they have the answer (e.g. timeframes applying to the user: ${followUpQuestion}`
-        );
-        
-        // Convert Gemini stream to ReadableStream and return streaming response
-        const readableStream = geminiStreamToReadableStream(result.stream);
-        return new StreamingTextResponse(readableStream);
-      } catch (error) {
-        console.error("Error from Gemini chat API:", error);
-        return NextResponse.json({ 
-          error: `Error from Gemini chat API: ${(error as Error).message}` 
-        }, { status: 500 });
-      }
+      // Send the follow-up question with streaming, including the legal expert instruction in the prompt
+      const result = await chat.sendMessageStream(
+        `${legalExpertInstruction}\n\nBased on the merger review timeline I shared earlier, please answer this question in 200 words or less, taking into account what major law firms and the ACCC say on this topic, focusing on the upcoming merger reforms and their procedural timeframes - but your focus no matter what should be on answering questions by reference to documents already provided to you where they have the answer (e.g. timeframes applying to the user: ${followUpQuestion}`
+      );
+      
+      // Convert Gemini stream to ReadableStream and return streaming response
+      const readableStream = geminiStreamToReadableStream(result.stream);
+      return new StreamingTextResponse(readableStream);
     }
     
-    // Handle initial summary generation with PDF
-    // Create a model instance
+    // Handle initial summary generation with text data instead of PDF
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    // Prepare the prompt
-    const prompt = `Summarize the status of the ACCC's review in 3-4 sentences identifying the current phase, whether the termination deadline has been extended due to commitments being offered or the ACCC stopping the clock (and how long), and the next step that is upcoming in the timeline based on today's date. Respond only with this summary, do not include any commentary or different options or headings.  Assume the new regime is in force.  An example is as follows: The ACCC is currently in the first phase of its review, with its decision on whether to commence a phase 2 review due on 1 January 2025.  That date has been extended by 10 days due to the ACCC stopping the clock, and a further 15 days due to commitments being offered.`;
-    
-    // Create parts for the multimodal request
-    const parts = [
-      { text: customPrompt || prompt },
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: pdfBase64
-        }
-      }
-    ];
+    // If we have text-based timeline data, use that instead of PDF
+    if (timelineData && inputParams) {
+      // Format the timeline data into a readable text format
+      const formattedTimeline = formatTimelineData(timelineData, inputParams);
+      
+      // Prepare the prompt with text data
+      const textPrompt = `Summarize the status of the ACCC's review in 3-4 sentences identifying the current phase, whether the termination deadline has been extended due to commitments being offered or the ACCC stopping the clock (and how long), and the next step that is upcoming in the timeline based on today's date. Respond only with this summary, do not include any commentary or different options or headings. Assume the new regime is in force.
 
-    try {
+Here is the timeline data:
+${formattedTimeline}
+
+An example summary is as follows: The ACCC is currently in the first phase of its review, with its decision on whether to commence a phase 2 review due on 1 January 2025. That date has been extended by 10 days due to the ACCC stopping the clock, and a further 15 days due to commitments being offered.`;
+
+      // Generate content with streaming
+      const result = await model.generateContentStream({
+        contents: [{ role: "user", parts: [{ text: customPrompt || textPrompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 200,
+        },
+      });
+
+      // Convert Gemini stream to ReadableStream and return streaming response
+      const readableStream = geminiStreamToReadableStream(result.stream);
+      return new StreamingTextResponse(readableStream);
+    } 
+    // Fallback to PDF-based approach if text data is not provided (for backward compatibility)
+    else if (pdfBase64) {
+      // Prepare the prompt
+      const prompt = `Summarize the status of the ACCC's review in 3-4 sentences identifying the current phase, whether the termination deadline has been extended due to commitments being offered or the ACCC stopping the clock (and how long), and the next step that is upcoming in the timeline based on today's date. Respond only with this summary, do not include any commentary or different options or headings. Assume the new regime is in force. An example is as follows: The ACCC is currently in the first phase of its review, with its decision on whether to commence a phase 2 review due on 1 January 2025. That date has been extended by 10 days due to the ACCC stopping the clock, and a further 15 days due to commitments being offered.`;
+      
+      // Create parts for the multimodal request
+      const parts = [
+        { text: customPrompt || prompt },
+        {
+          inlineData: {
+            mimeType: "application/pdf",
+            data: pdfBase64
+          }
+        }
+      ];
+
       // Generate content with streaming
       const result = await model.generateContentStream({
         contents: [{ role: "user", parts }],
@@ -167,14 +163,13 @@ export async function POST(request: Request) {
       // Convert Gemini stream to ReadableStream and return streaming response
       const readableStream = geminiStreamToReadableStream(result.stream);
       return new StreamingTextResponse(readableStream);
-    } catch (error) {
-      console.error("Error from Gemini API:", error);
+    } else {
       return NextResponse.json({ 
-        error: `Error from Gemini API: ${(error as Error).message}` 
-      }, { status: 500 });
+        error: "No timeline data provided. Please provide either timelineData and inputParams or pdfBase64." 
+      }, { status: 400 });
     }
   } catch (error) {
-    console.error("Error in API route:", error);
+    console.error("Error from Gemini API:", error);
     
     // Provide more specific error messages for common issues
     const errorMessage = (error as Error).message;
@@ -191,8 +186,62 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         error: "The advanced model is not available with your API key. Please try again with the standard model." 
       }, { status: 404 });
+    } else if (errorMessage.includes("Request Entity Too Large") || errorMessage.includes("413")) {
+      return NextResponse.json({ 
+        error: "The request is too large. Please try using the text-based approach instead of PDF." 
+      }, { status: 413 });
     }
     
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
+}
+
+// Helper function to format timeline data into a readable text format
+function formatTimelineData(timelineData: any[], inputParams: any): string {
+  let formattedText = "";
+  
+  // Add input parameters
+  formattedText += "Input Parameters:\n";
+  formattedText += `Transaction Complexity: ${inputParams.phaseOption === "phase1" ? "Phase 1 Only" : "Phase 1 and Phase 2"}\n`;
+  formattedText += `Filing Date: ${inputParams.filingDate}\n`;
+  formattedText += `Pre-Assessment Days: ${inputParams.preAssessmentDays}\n`;
+  formattedText += `Clock Stopped: ${inputParams.stopClockEnabled ? "Yes" : "No"}\n`;
+  
+  if (inputParams.stopClockEnabled) {
+    formattedText += `  Stop Clock Start: ${inputParams.stopClockDate}\n`;
+    formattedText += `  Stop Clock Duration: ${inputParams.stopClockDuration} days\n`;
+  }
+  
+  formattedText += `Commitments Offered: ${inputParams.commitmentsEnabled ? "Yes" : "No"}\n`;
+  
+  if (inputParams.commitmentsEnabled) {
+    formattedText += `  Phase: ${inputParams.commitmentPhase === "phase1" ? "Phase One" : "Phase Two"}\n`;
+    formattedText += `  Extension Duration: ${inputParams.extensionDuration} days\n`;
+  }
+  
+  formattedText += `Total Timeline: ${inputParams.totalDays} days\n\n`;
+  
+  // Add timeline events
+  formattedText += "Timeline Events:\n";
+  
+  timelineData.forEach((event, index) => {
+    formattedText += `${index + 1}. ${event.event} - Day ${event.day} - Date: ${event.date} - ${event.dayOfWeek}\n`;
+    
+    if (event.isStopClock && event.stopClockDuration) {
+      formattedText += `   (Stop Clock Duration: ${event.stopClockDuration} days)\n`;
+    }
+    
+    if (event.extensionDays) {
+      formattedText += `   (Extended by ${event.extensionDays} days due to commitment proposal)\n`;
+    }
+    
+    if (event.isPast) {
+      formattedText += `   (This event is in the past)\n`;
+    }
+  });
+  
+  // Add today's date for reference
+  formattedText += `\nToday's Date: ${new Date().toDateString()}\n`;
+  
+  return formattedText;
 } 
