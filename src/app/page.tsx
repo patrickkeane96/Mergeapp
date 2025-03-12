@@ -1,46 +1,70 @@
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { ModeToggle } from "@/components/mode-toggle";
 import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-8">
-      <div>
-        <h2 className="text-2xl font-semibold text-center border p-4 font-mono rounded-md">
-          Get started by choosing a template path from the /paths/ folder.
-        </h2>
-      </div>
-      <div>
-        <h1 className="text-6xl font-bold text-center">Make anything you imagine 🪄</h1>
-        <h2 className="text-2xl text-center font-light text-gray-500 pt-4">
-          This whole page will be replaced when you run your template path.
-        </h2>
-      </div>
-      <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Chat App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            An intelligent conversational app powered by AI models, featuring real-time responses
-            and seamless integration with Next.js and various AI providers.
-          </p>
+    <main className="flex min-h-screen flex-col items-center p-8">
+      <div className="w-full max-w-5xl">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold">shadcn/ui Template</h1>
+          <ModeToggle />
         </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Image Generation App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            Create images from text prompts using AI, powered by the Replicate API and Next.js.
-          </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Business Days Calculator</CardTitle>
+              <CardDescription>Calculate merger control milestones</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p>A tool to calculate key merger control milestones based on filing date, accounting for business days only.</p>
+            </CardContent>
+            <CardFooter>
+              <Button asChild>
+                <Link href="/calculator">Open Calculator</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Card Title 2</CardTitle>
+              <CardDescription>Card description goes here</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p>This is a simple card component from shadcn/ui.</p>
+            </CardContent>
+            <CardFooter>
+              <Button variant="outline">Learn More</Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Card Title 3</CardTitle>
+              <CardDescription>Card description goes here</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p>This is a simple card component from shadcn/ui.</p>
+            </CardContent>
+            <CardFooter>
+              <Button variant="secondary">Learn More</Button>
+            </CardFooter>
+          </Card>
         </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Social Media App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A feature-rich social platform with user profiles, posts, and interactions using
-            Firebase and Next.js.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Voice Notes App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A voice-based note-taking app with real-time transcription using Deepgram API, 
-            Firebase integration for storage, and a clean, simple interface built with Next.js.
-          </p>
+
+        <div className="mt-12">
+          <h2 className="text-2xl font-bold mb-4">Button Variants</h2>
+          <div className="flex flex-wrap gap-4">
+            <Button>Default</Button>
+            <Button variant="secondary">Secondary</Button>
+            <Button variant="outline">Outline</Button>
+            <Button variant="destructive">Destructive</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="link">Link</Button>
+          </div>
         </div>
       </div>
     </main>
