@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CalendarIcon, Check, ChevronsUpDown } from "lucide-react";
+import { CalendarIcon, Check, ChevronsUpDown, FileIcon, Edit } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { TimelineChart, TimelineEvent, StopClockPeriod } from "./timeline-chart";
@@ -21,6 +21,8 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 // List of public holidays to exclude
 const holidays_list = [
@@ -92,6 +94,8 @@ type ResultRow = {
   isPreAssessment?: boolean;
   stopClockDuration?: number;
   extensionDays?: number; // Added for commitments extension
+  isActualDate?: boolean; // New property to indicate actual dates
+  originalDate?: Date; // Store the original calculated date
 };
 
 // Default date for calendar (January 1, 2026)
@@ -114,11 +118,30 @@ export function BusinessDaysCalculator() {
   const [stopClockPeriod, setStopClockPeriod] = React.useState<StopClockPeriod | undefined>(undefined);
   const [totalDays, setTotalDays] = React.useState<number>(0);
   const [phaseOption, setPhaseOption] = React.useState<PhaseOption>("phase1and2");
+  const [isGeneratingPDF, setIsGeneratingPDF] = React.useState(false);
+  
+  // New state for actual dates feature
+  const [updateActualDatesEnabled, setUpdateActualDatesEnabled] = React.useState(false);
+  const [actualDates, setActualDates] = React.useState<{[key: string]: Date}>({});
+  
+  // References for PDF export
+  const timelineRef = React.useRef<HTMLDivElement>(null);
+  const tableRef = React.useRef<HTMLDivElement>(null);
+  const inputParamsRef = React.useRef<HTMLDivElement>(null);
   
   // New state for commitments offered feature
   const [commitmentsEnabled, setCommitmentsEnabled] = React.useState(false);
   const [commitmentPhase, setCommitmentPhase] = React.useState<CommitmentPhaseOption>("phase1");
   const [extensionDuration, setExtensionDuration] = React.useState<number>(10);
+
+  // Function to update an actual date
+  const updateActualDate = (eventName: string, newDate: Date) => {
+    // Store the new actual date
+    setActualDates(prev => ({
+      ...prev,
+      [eventName]: newDate
+    }));
+  };
 
   // Calculate results when inputs change
   React.useEffect(() => {
@@ -271,21 +294,36 @@ export function BusinessDaysCalculator() {
       // Check if this is a phase determination date
       const isPhaseDecision = name.includes("Phase 1 determination") || name.includes("Phase 2 determination");
       
+      // Check if this is a key milestone that can have an actual date
+      const isEditableMilestone = 
+        name === "Phase 1 determination" || 
+        name === "ACCC issues notice of competition concerns" || 
+        name === "Phase 2 determination";
+      
+      // Check if we have an actual date for this milestone
+      const hasActualDate = isEditableMilestone && actualDates[name] !== undefined;
+      
+      // Use actual date if available, otherwise use calculated date
+      const finalDate = hasActualDate ? actualDates[name] : calculatedDate;
+      
       newResults.push({
         event: name,
         day: adjustedDays,
-        date: calculatedDate,
-        dayOfWeek: format(calculatedDate, "EEEE"),
+        date: finalDate,
+        originalDate: hasActualDate ? calculatedDate : undefined, // Store original date if using actual date
+        dayOfWeek: format(finalDate, "EEEE"),
         isPhaseDecision,
-        extensionDays: extensionApplied ? extensionDays : undefined
+        extensionDays: extensionApplied ? extensionDays : undefined,
+        isActualDate: hasActualDate
       });
 
       newTimelineEvents.push({
         event: name,
-        date: calculatedDate,
+        date: finalDate,
         isPhaseDecision,
         day: adjustedDays,
-        extensionDays: extensionApplied ? extensionDays : undefined
+        extensionDays: extensionApplied ? extensionDays : undefined,
+        isActualDate: hasActualDate
       });
     });
     
@@ -308,13 +346,146 @@ export function BusinessDaysCalculator() {
       const lastResult = newResults[newResults.length - 1];
       setTotalDays(preAssessmentDays + lastResult.day);
     }
-  }, [filingDate, stopClockEnabled, stopClockDate, stopClockDuration, preAssessmentDays, phaseOption, commitmentsEnabled, commitmentPhase, extensionDuration]);
+  }, [filingDate, stopClockEnabled, stopClockDate, stopClockDuration, preAssessmentDays, phaseOption, commitmentsEnabled, commitmentPhase, extensionDuration, actualDates]);
+
+  // Function to generate PDF
+  const generatePDF = async () => {
+    if (!results.length) return;
+    
+    setIsGeneratingPDF(true);
+    
+    try {
+      // Create a new PDF document
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+      
+      // Page 1: Timeline and Results Table
+      if (timelineRef.current && tableRef.current) {
+        // Capture timeline
+        const timelineCanvas = await html2canvas(timelineRef.current, {
+          scale: 2,
+          logging: false,
+          useCORS: true
+        });
+        
+        const timelineImgData = timelineCanvas.toDataURL('image/png');
+        
+        // Add timeline to PDF (centered)
+        const timelineImgWidth = 180; // mm, A4 width is 210mm
+        const timelineImgHeight = (timelineCanvas.height * timelineImgWidth) / timelineCanvas.width;
+        const timelineX = (210 - timelineImgWidth) / 2; // Center horizontally
+        const timelineY = 20; // Top margin
+        
+        pdf.addImage(timelineImgData, 'PNG', timelineX, timelineY, timelineImgWidth, timelineImgHeight);
+        
+        // Capture results table
+        const tableCanvas = await html2canvas(tableRef.current, {
+          scale: 2,
+          logging: false,
+          useCORS: true
+        });
+        
+        const tableImgData = tableCanvas.toDataURL('image/png');
+        
+        // Add table to PDF (centered)
+        const tableImgWidth = 180; // mm
+        const tableImgHeight = (tableCanvas.height * tableImgWidth) / tableCanvas.width;
+        const tableX = (210 - tableImgWidth) / 2; // Center horizontally
+        const tableY = timelineY + timelineImgHeight + 10; // Below timeline
+        
+        pdf.addImage(tableImgData, 'PNG', tableX, tableY, tableImgWidth, tableImgHeight);
+      }
+      
+      // Page 2: Input Parameters - Create a custom formatted page instead of capturing the DOM
+      pdf.addPage();
+      
+      // Set font styles
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(16);
+      
+      // Add title
+      pdf.text("Input Parameters", 105, 20, { align: "center" });
+      
+      // Set font for parameter labels
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      
+      // Starting position for parameters
+      const startX = 30;
+      let currentY = 40;
+      const lineHeight = 10;
+      
+      // Function to add a parameter with label and value
+      const addParameter = (label: string, value: string) => {
+        pdf.setFont("helvetica", "bold");
+        pdf.text(label + ":", startX, currentY);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(value, startX + 80, currentY);
+        currentY += lineHeight;
+      };
+      
+      // Add all parameters
+      addParameter("Transaction Complexity", phaseOption === "phase1" ? "Phase 1 Only" : "Phase 1 and Phase 2");
+      
+      if (filingDate) {
+        addParameter("Filing Date", format(filingDate, "d MMMM yyyy"));
+      } else {
+        addParameter("Filing Date", "Not set");
+      }
+      
+      addParameter("Pre-Assessment Days", preAssessmentDays.toString());
+      
+      // Add stop clock information if enabled
+      addParameter("Clock Stopped", stopClockEnabled ? "Yes" : "No");
+      
+      if (stopClockEnabled) {
+        currentY += 2; // Add a little extra space
+        
+        if (stopClockDate) {
+          addParameter("  Stop Clock Start", format(stopClockDate, "d MMMM yyyy"));
+        } else {
+          addParameter("  Stop Clock Start", "Not set");
+        }
+        
+        addParameter("  Stop Clock Duration", `${stopClockDuration} days`);
+        
+        currentY += 2; // Add a little extra space
+      }
+      
+      // Add commitments information if enabled
+      addParameter("Commitments Offered", commitmentsEnabled ? "Yes" : "No");
+      
+      if (commitmentsEnabled) {
+        currentY += 2; // Add a little extra space
+        
+        addParameter("  Phase", commitmentPhase === "phase1" ? "Phase One" : "Phase Two");
+        addParameter("  Extension Duration", `${extensionDuration} days`);
+      }
+      
+      // Add total timeline days
+      currentY += 5; // Add more space before total
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.text("Total Timeline:", startX, currentY);
+      pdf.text(`${totalDays} days`, startX + 80, currentY);
+      
+      // Save the PDF
+      pdf.save('business-days-calculator.pdf');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-[1600px] mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Left Column - Input Controls (reduced to 1/4 width) */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1" ref={inputParamsRef}>
           <Card className="mb-6">
             <CardHeader className="pb-3">
               <CardTitle>Input Parameters</CardTitle>
@@ -331,6 +502,8 @@ export function BusinessDaysCalculator() {
                     if (value === "phase1" && commitmentPhase === "phase2") {
                       setCommitmentPhase("phase1");
                     }
+                    // Reset actual dates when changing phase option
+                    setActualDates({});
                   }}
                 >
                   <SelectTrigger className="w-full">
@@ -370,6 +543,8 @@ export function BusinessDaysCalculator() {
                         if (stopClockDate && date && stopClockDate < date) {
                           setStopClockDate(undefined);
                         }
+                        // Reset actual dates when changing filing date
+                        setActualDates({});
                       }}
                       initialFocus
                       defaultMonth={filingDate || DEFAULT_CALENDAR_DATE}
@@ -387,7 +562,11 @@ export function BusinessDaysCalculator() {
                   type="number"
                   min="0"
                   value={preAssessmentDays}
-                  onChange={(e) => setPreAssessmentDays(parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    setPreAssessmentDays(parseInt(e.target.value) || 0);
+                    // Reset actual dates when changing pre-assessment days
+                    setActualDates({});
+                  }}
                 />
               </div>
 
@@ -404,6 +583,8 @@ export function BusinessDaysCalculator() {
                         setStopClockDate(undefined);
                         setStopClockDuration(0);
                       }
+                      // Reset actual dates when toggling stop clock
+                      setActualDates({});
                     }}
                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
@@ -434,7 +615,11 @@ export function BusinessDaysCalculator() {
                           <Calendar
                             mode="single"
                             selected={stopClockDate}
-                            onSelect={setStopClockDate}
+                            onSelect={(date) => {
+                              setStopClockDate(date);
+                              // Reset actual dates when changing stop clock date
+                              setActualDates({});
+                            }}
                             disabled={(date) => 
                               !filingDate || date < filingDate || isWeekend(date) // Disable weekends and dates before filing
                             }
@@ -453,7 +638,11 @@ export function BusinessDaysCalculator() {
                         type="number"
                         min="0"
                         value={stopClockDuration}
-                        onChange={(e) => setStopClockDuration(parseInt(e.target.value) || 0)}
+                        onChange={(e) => {
+                          setStopClockDuration(parseInt(e.target.value) || 0);
+                          // Reset actual dates when changing stop clock duration
+                          setActualDates({});
+                        }}
                       />
                     </div>
                   </div>
@@ -472,6 +661,8 @@ export function BusinessDaysCalculator() {
                       if (!e.target.checked) {
                         setExtensionDuration(10);
                       }
+                      // Reset actual dates when toggling commitments
+                      setActualDates({});
                     }}
                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
@@ -485,7 +676,11 @@ export function BusinessDaysCalculator() {
                       <Label htmlFor="commitment-phase">Phase in which commitments are offered</Label>
                       <Select 
                         value={commitmentPhase} 
-                        onValueChange={(value: string) => setCommitmentPhase(value as CommitmentPhaseOption)}
+                        onValueChange={(value: string) => {
+                          setCommitmentPhase(value as CommitmentPhaseOption);
+                          // Reset actual dates when changing commitment phase
+                          setActualDates({});
+                        }}
                       >
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Select phase" />
@@ -511,11 +706,27 @@ export function BusinessDaysCalculator() {
                         onChange={(e) => {
                           const value = parseInt(e.target.value) || 0;
                           setExtensionDuration(Math.min(Math.max(value, 1), 15)); // Clamp between 1 and 15
+                          // Reset actual dates when changing extension duration
+                          setActualDates({});
                         }}
                       />
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Update Actual Dates Checkbox */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="update-actual-dates" 
+                    checked={updateActualDatesEnabled}
+                    onChange={(e) => setUpdateActualDatesEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <Label htmlFor="update-actual-dates">Update Actual Dates</Label>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -539,14 +750,26 @@ export function BusinessDaysCalculator() {
         {/* Right Column - Results (expanded to 3/4 width) */}
         <div className="lg:col-span-3">
           <Card className="h-full">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Merger Regime Date Calculator</CardTitle>
+              {results.length > 0 && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={generatePDF}
+                  disabled={isGeneratingPDF}
+                  className="flex items-center gap-1"
+                >
+                  <FileIcon className="h-4 w-4" />
+                  {isGeneratingPDF ? "Generating..." : "Export PDF"}
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {results.length > 0 ? (
                 <div className="space-y-6">
                   {/* Timeline visualization */}
-                  <div className="mb-6">
+                  <div className="mb-6" ref={timelineRef}>
                     <h3 className="text-lg font-medium mb-4">Timeline Visualization</h3>
                     <div className="border rounded-md p-4">
                       <TimelineChart 
@@ -558,7 +781,7 @@ export function BusinessDaysCalculator() {
                   </div>
 
                   {/* Results Table */}
-                  <div className="rounded-md border">
+                  <div className="rounded-md border" ref={tableRef}>
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -569,25 +792,71 @@ export function BusinessDaysCalculator() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {results.map((row, index) => (
-                          <TableRow 
-                            key={index} 
-                            className={cn(
-                              row.isPreAssessment ? "text-purple-500 font-medium" : "",
-                              (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
-                              row.isPhaseDecision ? "text-blue-500 font-medium" : ""
-                            )}
-                          >
-                            <TableCell className="font-medium">
-                              {row.event}
-                              {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
-                              {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
-                            </TableCell>
-                            <TableCell>{row.day}</TableCell>
-                            <TableCell>{format(row.date, "d MMMM yyyy")}</TableCell>
-                            <TableCell>{row.dayOfWeek}</TableCell>
-                          </TableRow>
-                        ))}
+                        {results.map((row, index) => {
+                          // Check if this is an editable milestone
+                          const isEditableMilestone = 
+                            updateActualDatesEnabled && 
+                            (row.event === "Phase 1 determination" || 
+                             row.event === "ACCC issues notice of competition concerns" || 
+                             row.event === "Phase 2 determination");
+                          
+                          return (
+                            <TableRow 
+                              key={index} 
+                              className={cn(
+                                row.isPreAssessment ? "text-purple-500 font-medium" : "",
+                                (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
+                                row.isPhaseDecision ? "text-blue-500 font-medium" : ""
+                              )}
+                            >
+                              <TableCell className="font-medium">
+                                {row.event}
+                                {row.isActualDate && '*'}
+                                {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
+                                {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
+                              </TableCell>
+                              <TableCell>{row.day}</TableCell>
+                              <TableCell>
+                                {isEditableMilestone ? (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        className={cn(
+                                          "w-full justify-start text-left font-normal",
+                                          row.isActualDate ? "border-blue-500" : ""
+                                        )}
+                                      >
+                                        <span className={row.isActualDate ? "font-medium" : ""}>
+                                          {format(row.date, "d MMMM yyyy")}
+                                          {row.isActualDate && '*'}
+                                        </span>
+                                        <Edit className="ml-2 h-3 w-3 opacity-50" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                      <Calendar
+                                        mode="single"
+                                        selected={row.date}
+                                        onSelect={(date) => {
+                                          if (date) {
+                                            updateActualDate(row.event, date);
+                                          }
+                                        }}
+                                        initialFocus
+                                        defaultMonth={row.date}
+                                        disabled={(date) => isWeekend(date)} // Disable weekends
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                ) : (
+                                  format(row.date, "d MMMM yyyy")
+                                )}
+                              </TableCell>
+                              <TableCell>{row.dayOfWeek}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
