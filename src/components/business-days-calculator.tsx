@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+// @ts-ignore
+import html2pdf from "html2pdf.js";
 
 // List of public holidays to exclude
 const holidays_list = [
@@ -106,6 +108,36 @@ type PhaseOption = "phase1" | "phase1and2";
 // Commitment phase options
 type CommitmentPhaseOption = "phase1" | "phase2";
 
+// Add this function near the other utility functions
+const generateOptimizedPdf = async (elementId: string): Promise<string> => {
+  try {
+    const element = document.getElementById(elementId);
+    if (!element) {
+      throw new Error("Element not found");
+    }
+
+    // Use lower quality settings for JPEG images to reduce file size
+    const pdfOptions = {
+      margin: 10,
+      filename: 'merger-timeline.pdf',
+      image: { type: 'jpeg', quality: 0.5 }, // Lower quality JPEG
+      html2canvas: { 
+        scale: 1, // Lower scale factor
+        useCORS: true,
+        logging: false,
+        letterRendering: true,
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+    };
+
+    const pdf = await html2pdf().from(element).set(pdfOptions).outputPdf('datauristring');
+    return pdf.split(',')[1]; // Remove the data URI prefix
+  } catch (error) {
+    console.error("Error generating PDF:", error);
+    throw new Error(`Failed to generate PDF: ${(error as Error).message}`);
+  }
+};
+
 export function BusinessDaysCalculator() {
   const [filingDate, setFilingDate] = React.useState<Date | undefined>(undefined);
   const [stopClockEnabled, setStopClockEnabled] = React.useState(false);
@@ -120,17 +152,18 @@ export function BusinessDaysCalculator() {
   const [isGeneratingPDF, setIsGeneratingPDF] = React.useState(false);
   
   // New state for AI summary
-  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
-  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = React.useState(false);
-  const [aiSummaryError, setAiSummaryError] = React.useState<string | null>(null);
-  
-  // New state for AI summary follow-up questions
-  const [showFollowUpInput, setShowFollowUpInput] = React.useState(false);
-  const [followUpQuestion, setFollowUpQuestion] = React.useState("");
-  const [isGeneratingFollowUp, setIsGeneratingFollowUp] = React.useState(false);
-  const [followUpResponse, setFollowUpResponse] = React.useState<string | null>(null);
-  const [followUpError, setFollowUpError] = React.useState<string | null>(null);
-  const [chatHistory, setChatHistory] = React.useState<any[] | null>(null);
+  const [aiSummary, setAiSummary] = React.useState<string>("");
+  const [aiSummaryError, setAiSummaryError] = React.useState<string>("");
+  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = React.useState<boolean>(false);
+  const [showFollowUpInput, setShowFollowUpInput] = React.useState<boolean>(false);
+  const [followUpQuestion, setFollowUpQuestion] = React.useState<string>("");
+  const [isGeneratingFollowUp, setIsGeneratingFollowUp] = React.useState<boolean>(false);
+  const [followUpResponse, setFollowUpResponse] = React.useState<string>("");
+  const [followUpError, setFollowUpError] = React.useState<string>("");
+  const [chatHistory, setChatHistory] = React.useState<Array<{
+    role: string;
+    parts: Array<{ text: string }>;
+  }>>([]);
   
   // References for PDF export
   const timelineRef = React.useRef<HTMLDivElement>(null);
@@ -499,173 +532,47 @@ export function BusinessDaysCalculator() {
     }
   };
 
-  // New function to generate PDF for AI
-  const generatePDFForAI = async (): Promise<string | null> => {
-    if (!results.length) return null;
-    
-    try {
-      // Create a new PDF document
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4"
-      });
-      
-      // Page 1: Timeline and Results Table
-      if (timelineRef.current && tableRef.current) {
-        // Capture timeline
-        const timelineCanvas = await html2canvas(timelineRef.current, {
-          scale: 2,
-          logging: false,
-          useCORS: true
-        });
-        
-        const timelineImgData = timelineCanvas.toDataURL('image/png');
-        
-        // Add timeline to PDF (centered)
-        const timelineImgWidth = 180; // mm, A4 width is 210mm
-        const timelineImgHeight = (timelineCanvas.height * timelineImgWidth) / timelineCanvas.width;
-        const timelineX = (210 - timelineImgWidth) / 2; // Center horizontally
-        const timelineY = 20; // Top margin
-        
-        pdf.addImage(timelineImgData, 'PNG', timelineX, timelineY, timelineImgWidth, timelineImgHeight);
-        
-        // Capture results table
-        const tableCanvas = await html2canvas(tableRef.current, {
-          scale: 2,
-          logging: false,
-          useCORS: true
-        });
-        
-        const tableImgData = tableCanvas.toDataURL('image/png');
-        
-        // Add table to PDF (centered)
-        const tableImgWidth = 180; // mm
-        const tableImgHeight = (tableCanvas.height * tableImgWidth) / tableCanvas.width;
-        const tableX = (210 - tableImgWidth) / 2; // Center horizontally
-        const tableY = timelineY + timelineImgHeight + 10; // Below timeline
-        
-        pdf.addImage(tableImgData, 'PNG', tableX, tableY, tableImgWidth, tableImgHeight);
-      }
-      
-      // Page 2: Input Parameters - Create a custom formatted page instead of capturing the DOM
-      pdf.addPage();
-      
-      // Set font styles
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(16);
-      
-      // Add title
-      pdf.text("Input Parameters", 105, 20, { align: "center" });
-      
-      // Set font for parameter labels
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(12);
-      
-      // Starting position for parameters
-      const startX = 30;
-      let currentY = 40;
-      const lineHeight = 10;
-      
-      // Function to add a parameter with label and value
-      const addParameter = (label: string, value: string) => {
-        pdf.setFont("helvetica", "bold");
-        pdf.text(label + ":", startX, currentY);
-        pdf.setFont("helvetica", "normal");
-        pdf.text(value, startX + 80, currentY);
-        currentY += lineHeight;
-      };
-      
-      // Add all parameters
-      addParameter("Transaction Complexity", phaseOption === "phase1" ? "Phase 1 Only" : "Phase 1 and Phase 2");
-      
-      if (filingDate) {
-        addParameter("Filing Date", format(filingDate, "d MMMM yyyy"));
-      } else {
-        addParameter("Filing Date", "Not set");
-      }
-      
-      addParameter("Pre-Assessment Days", preAssessmentDays.toString());
-      
-      // Add stop clock information if enabled
-      addParameter("Clock Stopped", stopClockEnabled ? "Yes" : "No");
-      
-      if (stopClockEnabled) {
-        currentY += 2; // Add a little extra space
-        
-        if (stopClockDate) {
-          addParameter("  Stop Clock Start", format(stopClockDate, "d MMMM yyyy"));
-        } else {
-          addParameter("  Stop Clock Start", "Not set");
-        }
-        
-        addParameter("  Stop Clock Duration", `${stopClockDuration} days`);
-        
-        currentY += 2; // Add a little extra space
-      }
-      
-      // Add commitments information if enabled
-      addParameter("Commitments Offered", commitmentsEnabled ? "Yes" : "No");
-      
-      if (commitmentsEnabled) {
-        currentY += 2; // Add a little extra space
-        
-        addParameter("  Phase", commitmentPhase === "phase1" ? "Phase One" : "Phase Two");
-        addParameter("  Extension Duration", `${extensionDuration} days`);
-      }
-      
-      // Add total timeline days
-      currentY += 5; // Add more space before total
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(14);
-      pdf.text("Total Timeline:", startX, currentY);
-      pdf.text(`${totalDays} days`, startX + 80, currentY);
-      
-      // Convert PDF to base64
-      const pdfBase64 = pdf.output('datauristring');
-      // Extract the base64 part after the data URI prefix
-      return pdfBase64.split(',')[1];
-    } catch (error) {
-      console.error('Error generating PDF for AI:', error);
-      return null;
-    }
-  };
-
   // Function to generate AI summary
   const generateAiSummary = async () => {
     setIsGeneratingAiSummary(true);
-    setAiSummaryError(null);
-    setFollowUpResponse(null); // Reset follow-up response when generating a new summary
-    setShowFollowUpInput(false); // Hide follow-up input when generating a new summary
-    setChatHistory(null); // Reset chat history
-    setAiSummary(""); // Reset AI summary to empty string to prepare for streaming
+    setAiSummary("");
+    setAiSummaryError("");
+    setFollowUpResponse("");
+    setChatHistory([]);
     
     try {
-      // Generate PDF for AI
-      const pdfBase64 = await generatePDFForAI();
+      // Generate an optimized PDF with lower quality settings
+      const pdfBase64 = await generateOptimizedPdf("timeline-container");
       
-      if (!pdfBase64) {
-        throw new Error("Failed to generate PDF for AI analysis");
+      // Check if PDF is too large (over 8MB)
+      if (pdfBase64.length > 8 * 1024 * 1024) {
+        throw new Error("PDF file is too large. Please reduce the complexity of your timeline or the number of events.");
       }
       
-      // Call Gemini API with streaming
-      const response = await fetch('/api/gemini/summarize', {
-        method: 'POST',
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ pdfBase64 }),
+        body: JSON.stringify({
+          pdfBase64,
+        }),
       });
       
       if (!response.ok) {
+        // Handle specific error codes
+        if (response.status === 413) {
+          throw new Error("The timeline data is too large. Please reduce the number of events or complexity of your timeline.");
+        }
+        
         const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to generate AI summary");
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
       
       // Handle streaming response
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error("Failed to get response reader");
+        throw new Error("Failed to get response stream");
       }
       
       const decoder = new TextDecoder();
@@ -675,16 +582,26 @@ export function BusinessDaysCalculator() {
         const { done, value } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value, { stream: true });
-        summary += chunk;
+        const text = decoder.decode(value, { stream: true });
+        summary += text;
         setAiSummary(summary);
       }
       
-      // Set final summary
-      setAiSummary(summary);
+      // Update chat history with the initial summary
+      setChatHistory([
+        {
+          role: "user",
+          parts: [{ text: "Here is a merger review timeline for you to analyse." }],
+        },
+        {
+          role: "model",
+          parts: [{ text: summary }],
+        }
+      ]);
+      
     } catch (error) {
-      console.error('Error generating AI summary:', error);
-      setAiSummaryError((error as Error).message);
+      console.error("Error generating AI summary:", error);
+      setAiSummaryError(`${(error as Error).message}`);
     } finally {
       setIsGeneratingAiSummary(false);
     }
@@ -692,55 +609,68 @@ export function BusinessDaysCalculator() {
 
   // New function to handle follow-up questions using streaming
   const handleFollowUpQuestion = async () => {
-    if (!followUpQuestion.trim() || !aiSummary) return;
+    if (!followUpQuestion.trim()) return;
     
     setIsGeneratingFollowUp(true);
-    setFollowUpError(null);
-    setFollowUpResponse(""); // Reset to empty string for streaming
+    setFollowUpError("");
+    setFollowUpResponse("");
     
     try {
-      // Call Gemini API with the follow-up question using streaming
-      const response = await fetch('/api/gemini/summarize', {
-        method: 'POST',
+      // No need to regenerate PDF for follow-up questions
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           followUpQuestion,
           previousSummary: aiSummary,
-          chatHistory
+          chatHistory,
         }),
       });
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to generate response to follow-up question");
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
       
       // Handle streaming response
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error("Failed to get response reader");
+        throw new Error("Failed to get response stream");
       }
       
       const decoder = new TextDecoder();
-      let streamedResponse = "";
+      let responseText = "";
       
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value, { stream: true });
-        streamedResponse += chunk;
-        setFollowUpResponse(streamedResponse);
+        const text = decoder.decode(value, { stream: true });
+        responseText += text;
+        setFollowUpResponse(responseText);
       }
       
-      // Set final response
-      setFollowUpResponse(streamedResponse);
+      // Update chat history with the follow-up Q&A
+      const updatedHistory = [
+        ...chatHistory,
+        {
+          role: "user",
+          parts: [{ text: followUpQuestion }],
+        },
+        {
+          role: "model",
+          parts: [{ text: responseText }],
+        }
+      ];
+      
+      setChatHistory(updatedHistory);
       setFollowUpQuestion(""); // Clear the input field
+      
     } catch (error) {
-      console.error('Error generating follow-up response:', error);
-      setFollowUpError((error as Error).message);
+      console.error("Error with follow-up question:", error);
+      setFollowUpError(`${(error as Error).message}`);
     } finally {
       setIsGeneratingFollowUp(false);
     }
@@ -753,471 +683,532 @@ export function BusinessDaysCalculator() {
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Left Column - Input Controls (reduced to 1/4 width) */}
-        <div className="lg:col-span-1" ref={inputParamsRef}>
-          <Card className="mb-6">
-            <CardHeader className="pb-3">
-              <CardTitle>Input Parameters</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Phase Selection Dropdown */}
-              <div className="space-y-2">
-                <Label htmlFor="phase-option">Anticipated Transaction Complexity</Label>
-                <Select 
-                  value={phaseOption} 
-                  onValueChange={(value: string) => {
-                    setPhaseOption(value as PhaseOption);
-                    // If changing to Phase 1 Only and commitment phase is set to phase2, reset to phase1
-                    if (value === "phase1" && commitmentPhase === "phase2") {
-                      setCommitmentPhase("phase1");
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select phase option" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="phase1">Phase 1 Only</SelectItem>
-                    <SelectItem value="phase1and2">Phase 1 and Phase 2</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Filing Date Picker - Moved before Pre-Assessment Days */}
-              <div className="space-y-2">
-                <Label htmlFor="filing-date">Filing Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      id="filing-date"
-                      variant="outline"
+    <div className="container mx-auto p-4">
+      <div id="timeline-container">
+        {/* Timeline chart */}
+        <div className="mb-8" ref={timelineRef}>
+          <TimelineChart 
+            events={results} 
+            preAssessmentDays={preAssessmentDays}
+            stopClockPeriod={stopClockEnabled && stopClockDate ? {
+              startDate: stopClockDate,
+              endDate: stopClockDate && stopClockDuration ? addBusinessDays(stopClockDate, stopClockDuration) : new Date(),
+              duration: stopClockDuration
+            } : undefined}
+          />
+        </div>
+        
+        {/* Results table */}
+        <div className="mb-8" ref={tableRef}>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[400px]">Event</TableHead>
+                <TableHead>Day</TableHead>
+                <TableHead className="w-[180px]">Date</TableHead>
+                <TableHead>Day of Week</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {results.map((row, index) => {
+                // Check if today falls between this row and the next row
+                const isBeforeToday = row.isPast;
+                const nextRow = index < results.length - 1 ? results[index + 1] : null;
+                const isTodayAfterThis = nextRow ? isTodayBetween(row.date, nextRow.date) : false;
+                
+                return (
+                  <React.Fragment key={index}>
+                    <TableRow 
                       className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !filingDate && "text-muted-foreground"
+                        row.isPreAssessment ? "text-purple-500 font-medium" : "",
+                        (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
+                        row.isPhaseDecision ? "text-blue-500 font-medium" : "",
+                        isBeforeToday ? "opacity-85" : "" // Slightly dim past events (reduced fading)
                       )}
                     >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {filingDate ? format(filingDate, "PPP") : "Select filing date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={filingDate}
-                      onSelect={(date) => {
-                        setFilingDate(date);
-                        // Reset stop clock if it's before the new filing date
-                        if (stopClockDate && date && stopClockDate < date) {
+                      <TableCell className="font-medium">
+                        {row.event}
+                        {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
+                        {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
+                      </TableCell>
+                      <TableCell>{row.day}</TableCell>
+                      <TableCell>{format(row.date, "d MMMM yyyy")}</TableCell>
+                      <TableCell>{row.dayOfWeek}</TableCell>
+                    </TableRow>
+                    
+                    {/* Insert Today indicator row if today falls between this row and the next */}
+                    {isTodayAfterThis && (
+                      <TableRow className="h-0">
+                        <TableCell colSpan={4} className="p-0 relative">
+                          <div className="absolute w-full h-0 border-b border-yellow-300" style={{ width: 'calc(100% - 150px)' }}></div>
+                          <div className="absolute right-0 pr-4 -mt-[10px]">
+                            <span className="text-yellow-700 text-xs font-medium">Today: {format(new Date(), "d MMMM yyyy")}</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Rest of the component (controls and AI summary) */}
+      <div className="w-full max-w-[1600px] mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Left Column - Input Controls (reduced to 1/4 width) */}
+          <div className="lg:col-span-1" ref={inputParamsRef}>
+            <Card className="mb-6">
+              <CardHeader className="pb-3">
+                <CardTitle>Input Parameters</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Phase Selection Dropdown */}
+                <div className="space-y-2">
+                  <Label htmlFor="phase-option">Anticipated Transaction Complexity</Label>
+                  <Select 
+                    value={phaseOption} 
+                    onValueChange={(value: string) => {
+                      setPhaseOption(value as PhaseOption);
+                      // If changing to Phase 1 Only and commitment phase is set to phase2, reset to phase1
+                      if (value === "phase1" && commitmentPhase === "phase2") {
+                        setCommitmentPhase("phase1");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select phase option" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="phase1">Phase 1 Only</SelectItem>
+                      <SelectItem value="phase1and2">Phase 1 and Phase 2</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Filing Date Picker - Moved before Pre-Assessment Days */}
+                <div className="space-y-2">
+                  <Label htmlFor="filing-date">Filing Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="filing-date"
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !filingDate && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {filingDate ? format(filingDate, "PPP") : "Select filing date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={filingDate}
+                        onSelect={(date) => {
+                          setFilingDate(date);
+                          // Reset stop clock if it's before the new filing date
+                          if (stopClockDate && date && stopClockDate < date) {
+                            setStopClockDate(undefined);
+                          }
+                        }}
+                        initialFocus
+                        defaultMonth={filingDate || DEFAULT_CALENDAR_DATE}
+                        disabled={(date) => isWeekend(date)} // Disable weekends
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Pre-Assessment Days - Moved after Filing Date */}
+                <div className="space-y-2">
+                  <Label htmlFor="pre-assessment">Pre-Assessment Days</Label>
+                  <Input
+                    id="pre-assessment"
+                    type="number"
+                    min="0"
+                    value={preAssessmentDays}
+                    onChange={(e) => setPreAssessmentDays(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+
+                {/* Stop Clock Controls - with added spacing */}
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="checkbox" 
+                      id="stop-clock" 
+                      checked={stopClockEnabled}
+                      onChange={(e) => {
+                        setStopClockEnabled(e.target.checked);
+                        if (!e.target.checked) {
                           setStopClockDate(undefined);
+                          setStopClockDuration(0);
                         }
                       }}
-                      initialFocus
-                      defaultMonth={filingDate || DEFAULT_CALENDAR_DATE}
-                      disabled={(date) => isWeekend(date)} // Disable weekends
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                     />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* Pre-Assessment Days - Moved after Filing Date */}
-              <div className="space-y-2">
-                <Label htmlFor="pre-assessment">Pre-Assessment Days</Label>
-                <Input
-                  id="pre-assessment"
-                  type="number"
-                  min="0"
-                  value={preAssessmentDays}
-                  onChange={(e) => setPreAssessmentDays(parseInt(e.target.value) || 0)}
-                />
-              </div>
-
-              {/* Stop Clock Controls - with added spacing */}
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    id="stop-clock" 
-                    checked={stopClockEnabled}
-                    onChange={(e) => {
-                      setStopClockEnabled(e.target.checked);
-                      if (!e.target.checked) {
-                        setStopClockDate(undefined);
-                        setStopClockDuration(0);
-                      }
-                    }}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  <Label htmlFor="stop-clock">Clock Stopped</Label>
-                </div>
-
-                {stopClockEnabled && (
-                  <div className="space-y-4 pl-6 mt-2">
-                    {/* Stop Clock Start Date */}
-                    <div className="space-y-2">
-                      <Label htmlFor="stop-clock-date">Stop Clock Start</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            id="stop-clock-date"
-                            variant="outline"
-                            className={cn(
-                              "w-full justify-start text-left font-normal",
-                              !stopClockDate && "text-muted-foreground"
-                            )}
-                            disabled={!filingDate}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {stopClockDate ? format(stopClockDate, "PPP") : "Select stop clock start date"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={stopClockDate}
-                            onSelect={setStopClockDate}
-                            disabled={(date) => 
-                              !filingDate || date < filingDate || isWeekend(date) // Disable weekends and dates before filing
-                            }
-                            initialFocus
-                            defaultMonth={stopClockDate || filingDate || DEFAULT_CALENDAR_DATE}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-
-                    {/* Stop Clock Duration */}
-                    <div className="space-y-2">
-                      <Label htmlFor="stop-clock-duration">Stop Clock Duration (days)</Label>
-                      <Input
-                        id="stop-clock-duration"
-                        type="number"
-                        min="0"
-                        value={stopClockDuration}
-                        onChange={(e) => setStopClockDuration(parseInt(e.target.value) || 0)}
-                      />
-                    </div>
+                    <Label htmlFor="stop-clock">Clock Stopped</Label>
                   </div>
-                )}
-              </div>
 
-              {/* Commitments Offered Controls */}
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    id="commitments-offered" 
-                    checked={commitmentsEnabled}
-                    onChange={(e) => {
-                      setCommitmentsEnabled(e.target.checked);
-                      if (!e.target.checked) {
-                        setExtensionDuration(10);
-                      }
-                    }}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  <Label htmlFor="commitments-offered">Commitments Offered</Label>
-                </div>
-
-                {commitmentsEnabled && (
-                  <div className="space-y-4 pl-6 mt-2">
-                    {/* Phase in which commitment offered */}
-                    <div className="space-y-2">
-                      <Label htmlFor="commitment-phase">Phase in which commitments are offered</Label>
-                      <Select 
-                        value={commitmentPhase} 
-                        onValueChange={(value: string) => setCommitmentPhase(value as CommitmentPhaseOption)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select phase" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="phase1">Phase One</SelectItem>
-                          {phaseOption === "phase1and2" && (
-                            <SelectItem value="phase2">Phase Two</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Extension Duration */}
-                    <div className="space-y-2">
-                      <Label htmlFor="extension-duration">Duration of extension (1-15 days)</Label>
-                      <Input
-                        id="extension-duration"
-                        type="number"
-                        min="1"
-                        max="15"
-                        value={extensionDuration}
-                        onChange={(e) => {
-                          const value = parseInt(e.target.value) || 0;
-                          setExtensionDuration(Math.min(Math.max(value, 1), 15)); // Clamp between 1 and 15
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Total Days Counter - Light Theme */}
-          {results.length > 0 && (
-            <>
-              <Card className="border shadow-sm mb-6">
-                <CardHeader className="pb-2 pt-6">
-                  <CardTitle className="text-center text-lg">Total Timeline</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0 pb-6">
-                  <div className="flex flex-col items-center justify-center">
-                    <span className="text-6xl font-bold text-primary">{totalDays}</span>
-                    <span className="text-sm mt-1 text-muted-foreground">days</span>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              {/* AI Summary Card */}
-              <Card className="border shadow-sm">
-                <CardHeader className="pb-2 pt-6 flex flex-row items-center justify-between">
-                  <CardTitle className="text-center text-lg">AI Summary</CardTitle>
-                  {aiSummary && !isGeneratingAiSummary && (
-                    <div className="flex space-x-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => setShowFollowUpInput(!showFollowUpInput)}
-                        disabled={isGeneratingAiSummary || isGeneratingFollowUp}
-                        className="h-8 w-8 text-gray-500 hover:text-gray-700"
-                        title="Ask a follow-up question"
-                      >
-                        <CornerDownLeft className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={generateAiSummary}
-                        disabled={isGeneratingAiSummary || isGeneratingFollowUp}
-                        className="h-8 w-8 text-gray-500 hover:text-gray-700"
-                        title="Refresh AI summary"
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </CardHeader>
-                <CardContent className="pt-0 pb-6">
-                  {!aiSummary && !isGeneratingAiSummary && !aiSummaryError && (
-                    <div className="flex flex-col items-center justify-center">
-                      <Button 
-                        onClick={generateAiSummary}
-                        className="mt-2"
-                      >
-                        Generate AI Summary
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {isGeneratingAiSummary && (
-                    <div className="flex flex-col items-center justify-center">
-                      <div className={aiSummary ? "text-center text-muted-foreground mb-4" : "animate-pulse text-center text-muted-foreground"}>
-                        {aiSummary ? "Generating summary..." : "Preparing document for analysis..."}
-                      </div>
-                      {aiSummary && (
-                        <div className="text-sm text-muted-foreground w-full">
-                          {aiSummary}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {aiSummaryError && (
-                    <div className="flex flex-col items-center justify-center">
-                      <div className="text-center text-red-500 text-sm mb-2">
-                        {aiSummaryError}
-                      </div>
-                      {aiSummaryError.includes("API key") && (
-                        <a 
-                          href="https://ai.google.dev/" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-500 hover:underline mb-2"
-                        >
-                          Get a Gemini API key
-                        </a>
-                      )}
-                      <Button 
-                        onClick={generateAiSummary}
-                        className="mt-2"
-                        variant="outline"
-                        size="sm"
-                      >
-                        Try Again
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {aiSummary && !isGeneratingAiSummary && (
-                    <div className="space-y-4">
-                      <div className="text-sm text-muted-foreground">
-                        {followUpResponse || aiSummary}
-                      </div>
-                      
-                      {/* Follow-up question input */}
-                      {showFollowUpInput && (
-                        <div className="mt-4 space-y-2">
-                          <div className="flex items-center space-x-2">
-                            <Input
-                              placeholder="Ask a follow-up question..."
-                              value={followUpQuestion}
-                              onChange={(e) => setFollowUpQuestion(e.target.value)}
-                              maxLength={500}
-                              disabled={isGeneratingFollowUp}
-                              className="flex-1"
-                              onFocus={(e) => {
-                                if (e.target.placeholder === "Ask a follow-up question...") {
-                                  e.target.placeholder = "";
-                                }
-                              }}
-                              onBlur={(e) => {
-                                if (e.target.value === "") {
-                                  e.target.placeholder = "Ask a follow-up question...";
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault();
-                                  handleFollowUpQuestion();
-                                }
-                              }}
-                            />
+                  {stopClockEnabled && (
+                    <div className="space-y-4 pl-6 mt-2">
+                      {/* Stop Clock Start Date */}
+                      <div className="space-y-2">
+                        <Label htmlFor="stop-clock-date">Stop Clock Start</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
                             <Button
-                              size="icon"
-                              onClick={handleFollowUpQuestion}
-                              disabled={!followUpQuestion.trim() || isGeneratingFollowUp}
-                              className="h-10 w-10"
+                              id="stop-clock-date"
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !stopClockDate && "text-muted-foreground"
+                              )}
+                              disabled={!filingDate}
                             >
-                              <Send className="h-4 w-4" />
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {stopClockDate ? format(stopClockDate, "PPP") : "Select stop clock start date"}
                             </Button>
-                          </div>
-                          
-                          {isGeneratingFollowUp && (
-                            <div className="text-xs text-center text-muted-foreground">
-                              {followUpResponse ? followUpResponse : "Generating response..."}
-                            </div>
-                          )}
-                          
-                          {followUpError && (
-                            <div className="text-xs text-center text-red-500">
-                              {followUpError}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={stopClockDate}
+                              onSelect={setStopClockDate}
+                              disabled={(date) => 
+                                !filingDate || date < filingDate || isWeekend(date) // Disable weekends and dates before filing
+                              }
+                              initialFocus
+                              defaultMonth={stopClockDate || filingDate || DEFAULT_CALENDAR_DATE}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+
+                      {/* Stop Clock Duration */}
+                      <div className="space-y-2">
+                        <Label htmlFor="stop-clock-duration">Stop Clock Duration (days)</Label>
+                        <Input
+                          id="stop-clock-duration"
+                          type="number"
+                          min="0"
+                          value={stopClockDuration}
+                          onChange={(e) => setStopClockDuration(parseInt(e.target.value) || 0)}
+                        />
+                      </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
+                </div>
 
-        {/* Right Column - Results (expanded to 3/4 width) */}
-        <div className="lg:col-span-3">
-          <Card className="h-full">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Merger Regime Date Calculator</CardTitle>
-              {results.length > 0 && (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={generatePDF}
-                  disabled={isGeneratingPDF}
-                  className="flex items-center gap-1"
-                >
-                  <FileIcon className="h-4 w-4" />
-                  {isGeneratingPDF ? "Generating..." : "Export PDF"}
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent>
-              {results.length > 0 ? (
-                <div className="space-y-6">
-                  {/* Timeline visualization */}
-                  <div className="mb-6" ref={timelineRef}>
-                    <h3 className="text-lg font-medium mb-4">Timeline Visualization</h3>
-                    <div className="border rounded-md p-4">
-                      <TimelineChart 
-                        events={timelineEvents} 
-                        stopClockPeriod={stopClockPeriod} 
-                        preAssessmentDays={preAssessmentDays}
-                      />
+                {/* Commitments Offered Controls */}
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="checkbox" 
+                      id="commitments-offered" 
+                      checked={commitmentsEnabled}
+                      onChange={(e) => {
+                        setCommitmentsEnabled(e.target.checked);
+                        if (!e.target.checked) {
+                          setExtensionDuration(10);
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <Label htmlFor="commitments-offered">Commitments Offered</Label>
+                  </div>
+
+                  {commitmentsEnabled && (
+                    <div className="space-y-4 pl-6 mt-2">
+                      {/* Phase in which commitment offered */}
+                      <div className="space-y-2">
+                        <Label htmlFor="commitment-phase">Phase in which commitments are offered</Label>
+                        <Select 
+                          value={commitmentPhase} 
+                          onValueChange={(value: string) => setCommitmentPhase(value as CommitmentPhaseOption)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select phase" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="phase1">Phase One</SelectItem>
+                            {phaseOption === "phase1and2" && (
+                              <SelectItem value="phase2">Phase Two</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Extension Duration */}
+                      <div className="space-y-2">
+                        <Label htmlFor="extension-duration">Duration of extension (1-15 days)</Label>
+                        <Input
+                          id="extension-duration"
+                          type="number"
+                          min="1"
+                          max="15"
+                          value={extensionDuration}
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value) || 0;
+                            setExtensionDuration(Math.min(Math.max(value, 1), 15)); // Clamp between 1 and 15
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total Days Counter - Light Theme */}
+            {results.length > 0 && (
+              <>
+                <Card className="border shadow-sm mb-6">
+                  <CardHeader className="pb-2 pt-6">
+                    <CardTitle className="text-center text-lg">Total Timeline</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0 pb-6">
+                    <div className="flex flex-col items-center justify-center">
+                      <span className="text-6xl font-bold text-primary">{totalDays}</span>
+                      <span className="text-sm mt-1 text-muted-foreground">days</span>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                {/* AI Summary Card */}
+                <Card className="border shadow-sm">
+                  <CardHeader className="pb-2 pt-6 flex flex-row items-center justify-between">
+                    <CardTitle className="text-center text-lg">AI Summary</CardTitle>
+                    {aiSummary && !isGeneratingAiSummary && (
+                      <div className="flex space-x-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => setShowFollowUpInput(!showFollowUpInput)}
+                          disabled={isGeneratingAiSummary || isGeneratingFollowUp}
+                          className="h-8 w-8 text-gray-500 hover:text-gray-700"
+                          title="Ask a follow-up question"
+                        >
+                          <CornerDownLeft className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={generateAiSummary}
+                          disabled={isGeneratingAiSummary || isGeneratingFollowUp}
+                          className="h-8 w-8 text-gray-500 hover:text-gray-700"
+                          title="Refresh AI summary"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent className="pt-0 pb-6">
+                    {!aiSummary && !isGeneratingAiSummary && !aiSummaryError && (
+                      <div className="flex flex-col items-center justify-center">
+                        <Button 
+                          onClick={generateAiSummary}
+                          className="mt-2"
+                        >
+                          Generate AI Summary
+                        </Button>
+                      </div>
+                    )}
+                    
+                    {isGeneratingAiSummary && (
+                      <div className="flex flex-col items-center justify-center">
+                        <div className={aiSummary ? "text-center text-muted-foreground mb-4" : "animate-pulse text-center text-muted-foreground"}>
+                          {aiSummary ? "Generating summary..." : "Preparing document for analysis..."}
+                        </div>
+                        {aiSummary && (
+                          <div className="text-sm text-muted-foreground w-full">
+                            {aiSummary}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {aiSummaryError && (
+                      <div className="text-red-500 mt-2 p-2 bg-red-50 rounded-md border border-red-200">
+                        <p className="font-medium">Error:</p>
+                        <p>{aiSummaryError}</p>
+                        {aiSummaryError.includes("too large") && (
+                          <p className="mt-2 text-sm">
+                            Try reducing the number of events or simplifying your timeline to generate a summary.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {aiSummary && !isGeneratingAiSummary && (
+                      <div className="space-y-4">
+                        <div className="text-sm text-muted-foreground">
+                          {followUpResponse || aiSummary}
+                        </div>
+                        
+                        {/* Follow-up question input */}
+                        {showFollowUpInput && (
+                          <div className="mt-4 space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <Input
+                                placeholder="Ask a follow-up question..."
+                                value={followUpQuestion}
+                                onChange={(e) => setFollowUpQuestion(e.target.value)}
+                                maxLength={500}
+                                disabled={isGeneratingFollowUp}
+                                className="flex-1"
+                                onFocus={(e) => {
+                                  if (e.target.placeholder === "Ask a follow-up question...") {
+                                    e.target.placeholder = "";
+                                  }
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "") {
+                                    e.target.placeholder = "Ask a follow-up question...";
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleFollowUpQuestion();
+                                  }
+                                }}
+                              />
+                              <Button
+                                size="icon"
+                                onClick={handleFollowUpQuestion}
+                                disabled={!followUpQuestion.trim() || isGeneratingFollowUp}
+                                className="h-10 w-10"
+                              >
+                                <Send className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            
+                            {isGeneratingFollowUp && (
+                              <div className="text-xs text-center text-muted-foreground">
+                                {followUpResponse ? followUpResponse : "Generating response..."}
+                              </div>
+                            )}
+                            
+                            {followUpError && (
+                              <div className="text-red-500 mt-2 p-2 bg-red-50 rounded-md border border-red-200">
+                                <p className="font-medium">Error:</p>
+                                <p>{followUpError}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+
+          {/* Right Column - Results (expanded to 3/4 width) */}
+          <div className="lg:col-span-3">
+            <Card className="h-full">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Merger Regime Date Calculator</CardTitle>
+                {results.length > 0 && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={generatePDF}
+                    disabled={isGeneratingPDF}
+                    className="flex items-center gap-1"
+                  >
+                    <FileIcon className="h-4 w-4" />
+                    {isGeneratingPDF ? "Generating..." : "Export PDF"}
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                {results.length > 0 ? (
+                  <div className="space-y-6">
+                    {/* Timeline visualization */}
+                    <div className="mb-6" ref={timelineRef}>
+                      <h3 className="text-lg font-medium mb-4">Timeline Visualization</h3>
+                      <div className="border rounded-md p-4">
+                        <TimelineChart 
+                          events={timelineEvents} 
+                          stopClockPeriod={stopClockPeriod} 
+                          preAssessmentDays={preAssessmentDays}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Results Table */}
+                    <div className="rounded-md border" ref={tableRef}>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[400px]">Event</TableHead>
+                            <TableHead>Day</TableHead>
+                            <TableHead className="w-[180px]">Date</TableHead>
+                            <TableHead>Day of Week</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {results.map((row, index) => {
+                            // Check if today falls between this row and the next row
+                            const isBeforeToday = row.isPast;
+                            const nextRow = index < results.length - 1 ? results[index + 1] : null;
+                            const isTodayAfterThis = nextRow ? isTodayBetween(row.date, nextRow.date) : false;
+                            
+                            return (
+                              <React.Fragment key={index}>
+                                <TableRow 
+                                  className={cn(
+                                    row.isPreAssessment ? "text-purple-500 font-medium" : "",
+                                    (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
+                                    row.isPhaseDecision ? "text-blue-500 font-medium" : "",
+                                    isBeforeToday ? "opacity-85" : "" // Slightly dim past events (reduced fading)
+                                  )}
+                                >
+                                  <TableCell className="font-medium">
+                                    {row.event}
+                                    {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
+                                    {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
+                                  </TableCell>
+                                  <TableCell>{row.day}</TableCell>
+                                  <TableCell>{format(row.date, "d MMMM yyyy")}</TableCell>
+                                  <TableCell>{row.dayOfWeek}</TableCell>
+                                </TableRow>
+                                
+                                {/* Insert Today indicator row if today falls between this row and the next */}
+                                {isTodayAfterThis && (
+                                  <TableRow className="h-0">
+                                    <TableCell colSpan={4} className="p-0 relative">
+                                      <div className="absolute w-full h-0 border-b border-yellow-300" style={{ width: 'calc(100% - 150px)' }}></div>
+                                      <div className="absolute right-0 pr-4 -mt-[10px]">
+                                        <span className="text-yellow-700 text-xs font-medium">Today: {format(new Date(), "d MMMM yyyy")}</span>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
                   </div>
-
-                  {/* Results Table */}
-                  <div className="rounded-md border" ref={tableRef}>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[400px]">Event</TableHead>
-                          <TableHead>Day</TableHead>
-                          <TableHead className="w-[180px]">Date</TableHead>
-                          <TableHead>Day of Week</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {results.map((row, index) => {
-                          // Check if today falls between this row and the next row
-                          const isBeforeToday = row.isPast;
-                          const nextRow = index < results.length - 1 ? results[index + 1] : null;
-                          const isTodayAfterThis = nextRow ? isTodayBetween(row.date, nextRow.date) : false;
-                          
-                          return (
-                            <React.Fragment key={index}>
-                              <TableRow 
-                                className={cn(
-                                  row.isPreAssessment ? "text-purple-500 font-medium" : "",
-                                  (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
-                                  row.isPhaseDecision ? "text-blue-500 font-medium" : "",
-                                  isBeforeToday ? "opacity-85" : "" // Slightly dim past events (reduced fading)
-                                )}
-                              >
-                                <TableCell className="font-medium">
-                                  {row.event}
-                                  {row.isStopClock && row.stopClockDuration && ` (${row.stopClockDuration} days)`}
-                                  {row.extensionDays && ` (extended by ${row.extensionDays} days due to commitment proposal)`}
-                                </TableCell>
-                                <TableCell>{row.day}</TableCell>
-                                <TableCell>{format(row.date, "d MMMM yyyy")}</TableCell>
-                                <TableCell>{row.dayOfWeek}</TableCell>
-                              </TableRow>
-                              
-                              {/* Insert Today indicator row if today falls between this row and the next */}
-                              {isTodayAfterThis && (
-                                <TableRow className="h-0">
-                                  <TableCell colSpan={4} className="p-0 relative">
-                                    <div className="absolute w-full h-0 border-b border-yellow-300" style={{ width: 'calc(100% - 150px)' }}></div>
-                                    <div className="absolute right-0 pr-4 -mt-[10px]">
-                                      <span className="text-yellow-700 text-xs font-medium">Today: {format(new Date(), "d MMMM yyyy")}</span>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                ) : (
+                  <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                    Please select a filing date to see the timeline
                   </div>
-                </div>
-              ) : (
-                <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                  Please select a filing date to see the timeline
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </div>
