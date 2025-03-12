@@ -21,6 +21,14 @@ A sophisticated web application for calculating and visualizing merger control t
 - npm or yarn
 - Google Gemini API key (for AI summary feature)
 
+### Getting a Gemini API Key
+
+1. Visit [Google AI Studio](https://ai.google.dev/)
+2. Sign in with your Google account
+3. Navigate to the API keys section (usually in the top-right menu)
+4. Click "Create API Key" and follow the instructions
+5. Copy your new API key for use in the application
+
 ### Installation
 
 1. Clone the repository
@@ -41,7 +49,6 @@ A sophisticated web application for calculating and visualizing merger control t
    ```
    GEMINI_API_KEY=your_gemini_api_key_here
    ```
-   You can obtain a Gemini API key from [Google AI Studio](https://ai.google.dev/).
 
 4. Start the development server
    ```
@@ -61,6 +68,18 @@ A sophisticated web application for calculating and visualizing merger control t
 5. View the generated timeline visualization and detailed event table
 6. Click "Export PDF" to download a PDF report of the timeline
 7. Click "Generate AI Summary" to get a concise summary of the merger review status
+   - Note: This feature requires a valid Gemini API key
+
+## Troubleshooting
+
+### AI Summary Feature
+
+If you encounter issues with the AI Summary feature:
+
+1. Make sure you have added a valid Gemini API key to your `.env.local` file
+2. Ensure your API key has access to the Gemini 1.5 Flash model
+3. Check that your API key is correctly formatted and doesn't include any extra spaces
+4. If you're still having issues, try generating a new API key
 
 ## Technologies Used
 

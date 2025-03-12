@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CalendarIcon, Check, ChevronsUpDown, FileIcon } from "lucide-react";
+import { CalendarIcon, Check, ChevronsUpDown, FileIcon, RefreshCw, CornerDownLeft, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { TimelineChart, TimelineEvent, StopClockPeriod } from "./timeline-chart";
@@ -123,6 +123,14 @@ export function BusinessDaysCalculator() {
   const [aiSummary, setAiSummary] = React.useState<string | null>(null);
   const [isGeneratingAiSummary, setIsGeneratingAiSummary] = React.useState(false);
   const [aiSummaryError, setAiSummaryError] = React.useState<string | null>(null);
+  
+  // New state for AI summary follow-up questions
+  const [showFollowUpInput, setShowFollowUpInput] = React.useState(false);
+  const [followUpQuestion, setFollowUpQuestion] = React.useState("");
+  const [isGeneratingFollowUp, setIsGeneratingFollowUp] = React.useState(false);
+  const [followUpResponse, setFollowUpResponse] = React.useState<string | null>(null);
+  const [followUpError, setFollowUpError] = React.useState<string | null>(null);
+  const [chatHistory, setChatHistory] = React.useState<any[] | null>(null);
   
   // References for PDF export
   const timelineRef = React.useRef<HTMLDivElement>(null);
@@ -491,7 +499,7 @@ export function BusinessDaysCalculator() {
     }
   };
 
-  // New function to generate PDF for AI summary
+  // New function to generate PDF for AI
   const generatePDFForAI = async (): Promise<string | null> => {
     if (!results.length) return null;
     
@@ -627,6 +635,10 @@ export function BusinessDaysCalculator() {
   const generateAiSummary = async () => {
     setIsGeneratingAiSummary(true);
     setAiSummaryError(null);
+    setFollowUpResponse(null); // Reset follow-up response when generating a new summary
+    setShowFollowUpInput(false); // Hide follow-up input when generating a new summary
+    setChatHistory(null); // Reset chat history
+    setAiSummary(""); // Reset AI summary to empty string to prepare for streaming
     
     try {
       // Generate PDF for AI
@@ -636,7 +648,7 @@ export function BusinessDaysCalculator() {
         throw new Error("Failed to generate PDF for AI analysis");
       }
       
-      // Call Gemini API
+      // Call Gemini API with streaming
       const response = await fetch('/api/gemini/summarize', {
         method: 'POST',
         headers: {
@@ -650,13 +662,87 @@ export function BusinessDaysCalculator() {
         throw new Error(errorData.error || "Failed to generate AI summary");
       }
       
-      const data = await response.json();
-      setAiSummary(data.summary);
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Failed to get response reader");
+      }
+      
+      const decoder = new TextDecoder();
+      let summary = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        summary += chunk;
+        setAiSummary(summary);
+      }
+      
+      // Set final summary
+      setAiSummary(summary);
     } catch (error) {
       console.error('Error generating AI summary:', error);
       setAiSummaryError((error as Error).message);
     } finally {
       setIsGeneratingAiSummary(false);
+    }
+  };
+
+  // New function to handle follow-up questions using streaming
+  const handleFollowUpQuestion = async () => {
+    if (!followUpQuestion.trim() || !aiSummary) return;
+    
+    setIsGeneratingFollowUp(true);
+    setFollowUpError(null);
+    setFollowUpResponse(""); // Reset to empty string for streaming
+    
+    try {
+      // Call Gemini API with the follow-up question using streaming
+      const response = await fetch('/api/gemini/summarize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          followUpQuestion,
+          previousSummary: aiSummary,
+          chatHistory
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate response to follow-up question");
+      }
+      
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Failed to get response reader");
+      }
+      
+      const decoder = new TextDecoder();
+      let streamedResponse = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        streamedResponse += chunk;
+        setFollowUpResponse(streamedResponse);
+      }
+      
+      // Set final response
+      setFollowUpResponse(streamedResponse);
+      setFollowUpQuestion(""); // Clear the input field
+    } catch (error) {
+      console.error('Error generating follow-up response:', error);
+      setFollowUpError((error as Error).message);
+    } finally {
+      setIsGeneratingFollowUp(false);
     }
   };
 
@@ -893,8 +979,32 @@ export function BusinessDaysCalculator() {
               
               {/* AI Summary Card */}
               <Card className="border shadow-sm">
-                <CardHeader className="pb-2 pt-6">
+                <CardHeader className="pb-2 pt-6 flex flex-row items-center justify-between">
                   <CardTitle className="text-center text-lg">AI Summary</CardTitle>
+                  {aiSummary && !isGeneratingAiSummary && (
+                    <div className="flex space-x-2">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setShowFollowUpInput(!showFollowUpInput)}
+                        disabled={isGeneratingAiSummary || isGeneratingFollowUp}
+                        className="h-8 w-8 text-gray-500 hover:text-gray-700"
+                        title="Ask a follow-up question"
+                      >
+                        <CornerDownLeft className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={generateAiSummary}
+                        disabled={isGeneratingAiSummary || isGeneratingFollowUp}
+                        className="h-8 w-8 text-gray-500 hover:text-gray-700"
+                        title="Refresh AI summary"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="pt-0 pb-6">
                   {!aiSummary && !isGeneratingAiSummary && !aiSummaryError && (
@@ -910,17 +1020,32 @@ export function BusinessDaysCalculator() {
                   
                   {isGeneratingAiSummary && (
                     <div className="flex flex-col items-center justify-center">
-                      <div className="animate-pulse text-center text-muted-foreground">
-                        Generating summary...
+                      <div className={aiSummary ? "text-center text-muted-foreground mb-4" : "animate-pulse text-center text-muted-foreground"}>
+                        {aiSummary ? "Generating summary..." : "Preparing document for analysis..."}
                       </div>
+                      {aiSummary && (
+                        <div className="text-sm text-muted-foreground w-full">
+                          {aiSummary}
+                        </div>
+                      )}
                     </div>
                   )}
                   
                   {aiSummaryError && (
                     <div className="flex flex-col items-center justify-center">
-                      <div className="text-center text-red-500 text-sm">
+                      <div className="text-center text-red-500 text-sm mb-2">
                         {aiSummaryError}
                       </div>
+                      {aiSummaryError.includes("API key") && (
+                        <a 
+                          href="https://ai.google.dev/" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-500 hover:underline mb-2"
+                        >
+                          Get a Gemini API key
+                        </a>
+                      )}
                       <Button 
                         onClick={generateAiSummary}
                         className="mt-2"
@@ -932,9 +1057,63 @@ export function BusinessDaysCalculator() {
                     </div>
                   )}
                   
-                  {aiSummary && (
-                    <div className="text-sm text-muted-foreground">
-                      {aiSummary}
+                  {aiSummary && !isGeneratingAiSummary && (
+                    <div className="space-y-4">
+                      <div className="text-sm text-muted-foreground">
+                        {followUpResponse || aiSummary}
+                      </div>
+                      
+                      {/* Follow-up question input */}
+                      {showFollowUpInput && (
+                        <div className="mt-4 space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <Input
+                              placeholder="Ask a follow-up question..."
+                              value={followUpQuestion}
+                              onChange={(e) => setFollowUpQuestion(e.target.value)}
+                              maxLength={500}
+                              disabled={isGeneratingFollowUp}
+                              className="flex-1"
+                              onFocus={(e) => {
+                                if (e.target.placeholder === "Ask a follow-up question...") {
+                                  e.target.placeholder = "";
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  e.target.placeholder = "Ask a follow-up question...";
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleFollowUpQuestion();
+                                }
+                              }}
+                            />
+                            <Button
+                              size="icon"
+                              onClick={handleFollowUpQuestion}
+                              disabled={!followUpQuestion.trim() || isGeneratingFollowUp}
+                              className="h-10 w-10"
+                            >
+                              <Send className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          
+                          {isGeneratingFollowUp && (
+                            <div className="text-xs text-center text-muted-foreground">
+                              {followUpResponse ? followUpResponse : "Generating response..."}
+                            </div>
+                          )}
+                          
+                          {followUpError && (
+                            <div className="text-xs text-center text-red-500">
+                              {followUpError}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1001,7 +1180,7 @@ export function BusinessDaysCalculator() {
                                   row.isPreAssessment ? "text-purple-500 font-medium" : "",
                                   (row.isStopClock || row.isStopClockEnd) ? "text-red-500 font-medium" : "",
                                   row.isPhaseDecision ? "text-blue-500 font-medium" : "",
-                                  isBeforeToday ? "opacity-60" : "" // Slightly dim past events
+                                  isBeforeToday ? "opacity-85" : "" // Slightly dim past events (reduced fading)
                                 )}
                               >
                                 <TableCell className="font-medium">
