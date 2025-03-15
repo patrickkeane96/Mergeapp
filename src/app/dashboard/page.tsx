@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,7 +139,8 @@ const generatePlaceholderData = (): Merger[] => {
   return mergers;
 };
 
-export default function Dashboard() {
+// Create a client component that uses useSearchParams
+function DashboardContent() {
   const searchParams = useSearchParams();
   const highlightedMergerId = searchParams.get('mergerId');
   
@@ -464,7 +465,7 @@ export default function Dashboard() {
         delete window.markAllAsRead;
       }
     };
-  }, []);
+  }, [markAllAsRead, simulateRandomUpdates]);
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -543,5 +544,14 @@ export default function Dashboard() {
         onClose={closeSidebar}
       />
     </div>
+  );
+}
+
+// Main dashboard component with Suspense boundary
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="flex-1 p-6">Loading dashboard...</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 } 
