@@ -1,31 +1,63 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
-import { addMonths } from "date-fns";
-// @ts-ignore - Fix for missing types in recharts
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { addMonths, format, addBusinessDays, differenceInBusinessDays } from "date-fns";
+import { cn } from "@/lib/utils";
+import { Bell, RefreshCw, Zap, ChevronDown } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FollowIndustryButton } from "@/components/ui/follow-industry-button";
+import { useNotifications } from "@/lib/contexts/NotificationsContext";
+import { Merger, MergerOutcome, TimelineEvent, ChartDataItem } from "@/types/merger";
+import { DateRange } from "react-day-picker";
+import { MergerDetailsSidebar } from "@/components/merger-details-sidebar";
+import { MergerChart } from "@/components/merger-chart";
+import { MergerTable } from "@/components/merger-table";
+import { RecentUpdates } from "@/components/recent-updates";
+import { NewsModule } from "@/components/news-module";
+import { FollowedMergersModule } from "@/components/followed-mergers-module";
+import { EnhancedMergerTable } from "@/components/enhanced-merger-table";
+import { MergerDetailsModal } from '@/components/merger-details-modal';
+import { generateTimelineEvents } from "@/lib/utils/merger-utils";
+import Link from "next/link";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-// Define the merger data type
-type Merger = {
-  id: string;
-  name: string;
-  startDate: Date;
-  endDate: Date | null;
-  industry: string;
-};
-
-// Define chart data type
-type ChartDataItem = {
-  name: string;
-  count: number;
-  month: string;
+// Outcome configuration (for consistent colors and labels)
+const outcomeConfig = {
+  under_review: {
+    label: "Under Review",
+    color: "#FBBF24", // Yellow
+    barColor: "#FBBF24",
+    bgColor: "bg-yellow-100",
+    textColor: "text-yellow-800"
+  },
+  cleared: {
+    label: "Cleared",
+    color: "#10B981", // Green
+    barColor: "#10B981",
+    bgColor: "bg-green-100",
+    textColor: "text-green-800"
+  },
+  blocked: {
+    label: "Blocked",
+    color: "#EF4444", // Red
+    barColor: "#EF4444",
+    bgColor: "bg-red-100", 
+    textColor: "text-red-800"
+  },
+  cleared_with_commitments: {
+    label: "Cleared with Commitments",
+    color: "#059669", // Different shade of green
+    barColor: "#059669",
+    bgColor: "bg-emerald-100",
+    textColor: "text-emerald-800"
+  }
 };
 
 // Generate placeholder data
@@ -43,6 +75,21 @@ const generatePlaceholderData = (): Merger[] => {
     "Transportation"
   ];
   
+  const descriptions = [
+    "Horizontal merger between two major competitors in the market.",
+    "Vertical integration of supply chain components.",
+    "Conglomerate merger expanding into adjacent markets.",
+    "Acquisition of a startup with innovative technology.",
+    "Merger of equals to achieve market consolidation.",
+    "Strategic acquisition to enter new geographic markets.",
+    "Merger to achieve economies of scale and cost synergies.",
+    "Acquisition to diversify product portfolio.",
+    "Merger to strengthen market position against emerging competitors.",
+    "Acquisition of distressed assets at favorable valuation."
+  ];
+  
+  const outcomes: MergerOutcome[] = ['under_review', 'cleared', 'blocked', 'cleared_with_commitments'];
+  
   const mergers: Merger[] = [];
   const currentDate = new Date();
   
@@ -59,42 +106,107 @@ const generatePlaceholderData = (): Merger[] => {
     const endDate = i % 10 === 0 ? null : new Date(startDate);
     if (endDate) endDate.setMonth(endDate.getMonth() + durationMonths);
     
+    // Determine outcome based on date
+    let outcome: MergerOutcome = 'under_review';
+    if (endDate) {
+      // Distribution: 60% cleared, 15% blocked, 25% cleared with commitments
+      const rand = Math.random();
+      if (rand < 0.6) outcome = 'cleared';
+      else if (rand < 0.75) outcome = 'blocked';
+      else outcome = 'cleared_with_commitments';
+    }
+    
+    // For ongoing mergers, always 'under_review'
+    if (!endDate) outcome = 'under_review';
+    
+    // Add some future notification features
+    const hasNotifications = Math.random() > 0.7;
+    const isFollowed = Math.random() > 0.8;
+    
     mergers.push({
       id: `merger-${i}`,
       name: `Merger Case ${i + 1}`,
       startDate,
       endDate,
-      industry: industries[Math.floor(Math.random() * industries.length)]
+      industry: industries[Math.floor(Math.random() * industries.length)] || "Other",
+      description: descriptions[Math.floor(Math.random() * descriptions.length)],
+      outcome,
+      hasNotifications,
+      isFollowed
     });
   }
   
   return mergers;
 };
 
-const Dashboard = () => {
-  const allMergers = useMemo(() => generatePlaceholderData(), []);
-  const [mergers, setMergers] = useState<Merger[]>(allMergers);
-  const [dateRange, setDateRange] = useState<{from: Date; to: Date}>({
-    from: new Date(new Date().setFullYear(new Date().getFullYear() - 2)),
-    to: new Date(),
-  });
-  const [selectedIndustry, setSelectedIndustry] = useState<string>("");
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState<string>("");
+export default function Dashboard() {
+  const searchParams = useSearchParams();
+  const highlightedMergerId = searchParams.get('mergerId');
   
-  // Create chart data by grouping mergers by month
-  const chartData = useMemo(() => {
+  // Get notification context
+  const { 
+    notifications,
+    isMergerFollowed, 
+    isIndustryFollowed, 
+    showOnlyFollowed, 
+    toggleShowOnlyFollowed,
+    addNotification,
+    followMerger,
+    markAsRead,
+    markAllAsRead,
+    clearNotifications,
+    mergers
+  } = useNotifications();
+
+  const allMergers = useMemo(() => generatePlaceholderData(), []);
+  const [displayMergers, setDisplayMergers] = useState<Merger[]>(allMergers);
+  const [activeTab, setActiveTab] = useState<string>("dashboard");
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: undefined,
+    to: undefined,
+  });
+  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedOutcome, setSelectedOutcome] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMerger, setSelectedMerger] = useState<Merger | null>(null);
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [currentStartIndex, setCurrentStartIndex] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalClosing, setIsModalClosing] = useState(false);
+
+  // Create chart data by grouping mergers by month and outcome
+  const allChartData = useMemo(() => {
     const data: ChartDataItem[] = [];
-    const monthCounts: Record<string, number> = {};
+    const monthData: Record<string, { 
+      under_review: number, 
+      cleared: number, 
+      blocked: number, 
+      cleared_with_commitments: number,
+      total: number 
+    }> = {};
     
-    // Count mergers by month
+    // Count mergers by month and outcome
     allMergers.forEach(merger => {
       const month = `${merger.startDate.getFullYear()}-${String(merger.startDate.getMonth() + 1).padStart(2, '0')}`;
-      monthCounts[month] = (monthCounts[month] || 0) + 1;
+      
+      if (!monthData[month]) {
+        monthData[month] = {
+          under_review: 0,
+          cleared: 0,
+          blocked: 0,
+          cleared_with_commitments: 0,
+          total: 0
+        };
+      }
+      
+      monthData[month][merger.outcome]++;
+      monthData[month].total++;
     });
     
     // Sort months chronologically
-    const sortedMonths = Object.keys(monthCounts).sort();
+    const sortedMonths = Object.keys(monthData).sort();
     
     // Create chart data array
     sortedMonths.forEach(month => {
@@ -104,8 +216,12 @@ const Dashboard = () => {
       
       data.push({
         name,
-        count: monthCounts[month],
-        month
+        month,
+        under_review: monthData[month].under_review,
+        cleared: monthData[month].cleared,
+        blocked: monthData[month].blocked,
+        cleared_with_commitments: monthData[month].cleared_with_commitments,
+        total: monthData[month].total
       });
     });
     
@@ -113,51 +229,75 @@ const Dashboard = () => {
   }, [allMergers]);
   
   // Handle chart bar click to filter table
-  const handleBarClick = (data: ChartDataItem) => {
+  const handleBarClick = (data: any) => {
     if (selectedMonth === data.month) {
       setSelectedMonth(null); // Toggle off if already selected
     } else {
       setSelectedMonth(data.month);
+      setActiveTab("dashboard"); // Switch to dashboard tab when filtering
     }
   };
   
-  // Filter mergers based on selected filters
-  useEffect(() => {
-    let filtered = [...allMergers];
-    
-    // Apply date range filter
-    if (dateRange.from && dateRange.to) {
-      filtered = filtered.filter(merger => 
-        merger.startDate >= dateRange.from && 
-        (merger.startDate <= dateRange.to)
-      );
-    }
-    
-    // Apply industry filter
-    if (selectedIndustry) {
-      filtered = filtered.filter(merger => merger.industry === selectedIndustry);
-    }
-    
-    // Apply month filter if a bar in the chart was clicked
-    if (selectedMonth) {
-      const [year, month] = selectedMonth.split('-');
-      filtered = filtered.filter(merger => 
-        merger.startDate.getFullYear() === parseInt(year) && 
-        merger.startDate.getMonth() + 1 === parseInt(month)
-      );
-    }
-    
-    // Apply search term filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(merger => 
-        merger.name.toLowerCase().includes(term) || 
-        merger.industry.toLowerCase().includes(term)
-      );
-    }
-    
-    setMergers(filtered);
-  }, [allMergers, dateRange, selectedIndustry, selectedMonth, searchTerm]);
+  // Handle row click to show merger details
+  const handleRowClick = (merger: Merger) => {
+    setSelectedMerger(merger);
+    setTimelineEvents(generateTimelineEvents(merger));
+    setIsModalOpen(true);
+  };
+  
+  // Close sidebar with animation
+  const closeSidebar = () => {
+    setIsModalClosing(true);
+    setTimeout(() => {
+      setSelectedMerger(null);
+      setTimelineEvents([]);
+      setIsModalOpen(false);
+      setIsModalClosing(false);
+    }, 200);
+  };
+  
+  // Filter mergers based on criteria
+  const filteredMergers = useMemo(() => {
+    return displayMergers.filter((merger) => {
+      // Apply followed mergers filter
+      if (showOnlyFollowed && !isMergerFollowed(merger.id)) {
+        return false;
+      }
+      
+      // Apply industry filter
+      if (selectedIndustry && merger.industry !== selectedIndustry) {
+        return false;
+      }
+
+      // Apply outcome filter
+      if (selectedOutcome !== "all" && merger.outcome !== selectedOutcome) {
+        return false;
+      }
+
+      // Apply date range filter
+      if (dateRange.from && dateRange.to) {
+        const mergerDate = merger.startDate;
+        if (
+          mergerDate < dateRange.from ||
+          mergerDate > dateRange.to
+        ) {
+          return false;
+        }
+      }
+
+      // Apply search query filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return (
+          merger.name.toLowerCase().includes(query) ||
+          merger.description?.toLowerCase().includes(query) ||
+          merger.industry.toLowerCase().includes(query)
+        );
+      }
+
+      return true;
+    });
+  }, [displayMergers, selectedIndustry, selectedOutcome, dateRange, searchQuery, showOnlyFollowed, isMergerFollowed]);
   
   // Get unique industries for the dropdown
   const industries = useMemo(() => {
@@ -166,186 +306,242 @@ const Dashboard = () => {
     return Array.from(uniqueIndustries).sort();
   }, [allMergers]);
   
-  // Reset all filters
-  const resetFilters = () => {
-    setDateRange({
-      from: new Date(new Date().setFullYear(new Date().getFullYear() - 2)),
-      to: new Date(),
+  // If a mergerId is provided in the URL, scroll to that merger and follow it
+  useEffect(() => {
+    if (highlightedMergerId) {
+      // Find the merger in our data
+      const highlightedMerger = displayMergers.find(m => m.id === highlightedMergerId);
+      
+      if (highlightedMerger) {
+        // Follow the merger if not already followed
+        if (!isMergerFollowed(highlightedMergerId)) {
+          followMerger(highlightedMergerId);
+        }
+        
+        // Show the merger details
+        handleRowClick(highlightedMerger);
+        
+        // Switch to dashboard tab
+        setActiveTab("dashboard");
+      }
+    }
+  }, [highlightedMergerId, displayMergers, isMergerFollowed, followMerger]);
+
+  // Function to simulate a status change and create a notification
+  const simulateStatusChange = (merger: Merger) => {
+    // Define possible new outcomes based on current outcome
+    const possibleOutcomes: Record<MergerOutcome, MergerOutcome[]> = {
+      under_review: ['cleared', 'blocked', 'cleared_with_commitments'],
+      cleared: ['under_review'], // Rarely happens but possible
+      blocked: ['under_review'], // Could be appealed
+      cleared_with_commitments: ['under_review', 'cleared'] // Commitments could be removed
+    };
+    
+    const currentOutcome = merger.outcome;
+    const newOutcomes = possibleOutcomes[currentOutcome];
+    const newOutcome = newOutcomes[Math.floor(Math.random() * newOutcomes.length)];
+    
+    // Update the merger in the list
+    setDisplayMergers(prevMergers => 
+      prevMergers.map(m => 
+        m.id === merger.id 
+          ? { ...m, outcome: newOutcome } 
+          : m
+      )
+    );
+
+    // Update the notification creation in simulateStatusChange function
+    const getStatusMessage = (outcome: MergerOutcome) => {
+      switch(outcome) {
+        case 'under_review': return 'Phase 2 commenced';
+        case 'cleared': return 'Cleared';
+        case 'blocked': return 'Blocked';
+        case 'cleared_with_commitments': return 'Cleared with commitments';
+        default: return outcome;
+      }
+    };
+
+    // Create a notification about the change
+    addNotification({
+      type: 'status_change',
+      title: `Merger Status Updated: ${merger.name}`,
+      message: getStatusMessage(newOutcome),
+      mergerId: merger.id,
+      industry: merger.industry,
+      outcome: newOutcome
     });
-    setSelectedIndustry("");
-    setSelectedMonth(null);
-    setSearchTerm("");
+
+    // For NOCC issuance
+    addNotification({
+      type: 'nocc_issued',
+      title: `NOCC Issued for ${merger.name}`,
+      message: 'NOCC issued',
+      mergerId: merger.id,
+      industry: merger.industry,
+      outcome: merger.outcome
+    });
   };
-  
+
+  // Simulate NOCC issuance
+  const simulateNOCCIssuance = (merger: Merger) => {
+    // Only applicable for under_review mergers
+    if (merger.outcome !== 'under_review') return;
+    
+    // Add notification
+    addNotification({
+      type: 'nocc_issued',
+      title: `NOCC Issued for ${merger.name}`,
+      message: 'A Notice of Competition Concerns (NOCC) has been issued, outlining potential competition issues.',
+      mergerId: merger.id,
+      industry: merger.industry,
+      outcome: merger.outcome
+    });
+  };
+
+  // Simulate random merger updates
+  const simulateRandomUpdates = () => {
+    // Get followed mergers and industries
+    const followedMergerIds = displayMergers.filter(m => isMergerFollowed(m.id)).map(m => m.id);
+    const followedIndustryNames = industries.filter(i => isIndustryFollowed(i));
+    
+    // Get mergers from followed industries
+    const followedIndustryMergers = displayMergers.filter(m => 
+      followedIndustryNames.includes(m.industry) && !followedMergerIds.includes(m.id)
+    );
+    
+    // Combine followed mergers, mergers from followed industries, and some random mergers
+    const relevantMergers = [
+      ...displayMergers.filter(m => followedMergerIds.includes(m.id)),
+      ...followedIndustryMergers,
+      ...displayMergers.filter(m => 
+        !followedMergerIds.includes(m.id) && 
+        !followedIndustryNames.includes(m.industry)
+      ).slice(0, 5) // Add 5 random non-followed mergers
+    ];
+    
+    // If no mergers at all, use random mergers
+    const mergersToUpdate = relevantMergers.length > 0 
+      ? relevantMergers 
+      : displayMergers.slice(0, 20); // Use first 20 mergers if none are followed
+    
+    // Randomly select up to 10 mergers to update
+    const numUpdates = Math.min(10, mergersToUpdate.length);
+    const shuffled = [...mergersToUpdate].sort(() => 0.5 - Math.random());
+    const selectedMergers = shuffled.slice(0, numUpdates);
+    
+    // Update each selected merger
+    selectedMergers.forEach(merger => {
+      // 70% chance of status change, 30% chance of NOCC issuance
+      if (Math.random() < 0.7) {
+        simulateStatusChange(merger);
+      } else if (merger.outcome === 'under_review') {
+        simulateNOCCIssuance(merger);
+      } else {
+        simulateStatusChange(merger);
+      }
+    });
+    
+    // Switch to notifications tab
+    setActiveTab("notifications");
+  };
+
+  // Sample data generation just for demonstration
+  useEffect(() => {
+    // Expose markAllAsRead function to window for buttons to access
+    if (typeof window !== 'undefined') {
+      window.markAllAsRead = markAllAsRead;
+    }
+
+    // This would come from a real data source in a production app
+    const interval = setInterval(() => {
+      simulateRandomUpdates();
+    }, 30000); // Add a random update every 30 seconds
+
+    return () => {
+      clearInterval(interval);
+      // Clean up
+      if (typeof window !== 'undefined') {
+        delete window.markAllAsRead;
+      }
+    };
+  }, []);
+
   return (
-    <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-6">ACCC Merger Review Dashboard</h1>
-      
-      <div className="grid grid-cols-1 gap-6 mb-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>
-              Filter merger data by date range, industry, or search term
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="col-span-2">
-                <Label htmlFor="date-range">Date Range</Label>
-                <DatePickerWithRange 
-                  value={dateRange}
-                  onChange={(newRange) => {
-                    if (newRange?.from && newRange?.to) {
-                      setDateRange({ from: newRange.from, to: newRange.to });
-                    } else if (newRange?.from) {
-                      setDateRange({ from: newRange.from, to: dateRange.to });
-                    } else if (newRange?.to) {
-                      setDateRange({ from: dateRange.from, to: newRange.to });
-                    }
-                  }}
-                />
-              </div>
-              <div>
-                <Label htmlFor="industry">Industry</Label>
-                <Select 
-                  value={selectedIndustry} 
-                  onValueChange={setSelectedIndustry}
-                >
-                  <SelectTrigger id="industry">
-                    <SelectValue placeholder="All Industries" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Industries</SelectItem>
-                    {industries.map(industry => (
-                      <SelectItem key={industry} value={industry}>
-                        {industry}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="search">Search</Label>
-                <Input
-                  id="search"
-                  placeholder="Search by name or industry"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              <div className="col-span-1 md:col-span-4 flex justify-end">
-                <Button onClick={resetFilters} variant="outline">Reset Filters</Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex-1 space-y-6 p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-3xl font-bold">Merger Dashboard</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={simulateRandomUpdates}>
+            <Bell className="h-4 w-4 mr-2" />
+            Simulate News
+          </Button>
+          <Link href="/statistics">
+            <Button variant="outline">
+              View Statistics
+            </Button>
+          </Link>
+        </div>
       </div>
       
-      <div className="grid grid-cols-1 gap-6 mb-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Mergers Over Time</CardTitle>
-            <CardDescription>
-              {selectedMonth 
-                ? `Showing data for ${chartData.find(d => d.month === selectedMonth)?.name}` 
-                : "Click on a bar to filter by month"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={60} 
-                  />
-                  <YAxis label={{ value: 'Number of Mergers', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar 
-                    dataKey="count" 
-                    fill="#82ca9d" 
-                    name="Mergers Initiated" 
-                    onClick={handleBarClick}
-                    cursor="pointer" 
-                    fillOpacity={(entry: ChartDataItem) => entry.month === selectedMonth ? 1 : 0.6}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* News Module */}
+        <NewsModule 
+          notifications={notifications.slice().sort((a, b) => 
+            b.timestamp.getTime() - a.timestamp.getTime()
+          )}
+          maxItems={5}
+        />
+        
+        {/* Followed Mergers Module */}
+        <FollowedMergersModule 
+          mergers={displayMergers}
+          maxItems={5}
+        />
       </div>
       
-      <Card>
-        <CardHeader>
-          <CardTitle>Merger Cases</CardTitle>
-          <CardDescription>
-            {mergers.length} merger cases found
-            {selectedMonth && ` in ${chartData.find(d => d.month === selectedMonth)?.name}`}
-            {selectedIndustry && ` in ${selectedIndustry} industry`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Start Date</TableHead>
-                  <TableHead>End Date</TableHead>
-                  <TableHead>Industry</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mergers.length > 0 ? (
-                  mergers.map((merger) => (
-                    <TableRow key={merger.id}>
-                      <TableCell className="font-medium">{merger.name}</TableCell>
-                      <TableCell>{merger.startDate.toLocaleDateString()}</TableCell>
-                      <TableCell>
-                        {merger.endDate ? merger.endDate.toLocaleDateString() : "Ongoing"}
-                      </TableCell>
-                      <TableCell>{merger.industry}</TableCell>
-                      <TableCell>
-                        {!merger.endDate ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                            In Progress
-                          </span>
-                        ) : new Date() < merger.endDate ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            Completed
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
-                      No mergers found matching the current filters
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+      {/* Active Mergers Table */}
+      <div className="mt-6">
+        <Card className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">Active Mergers</h2>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-1">
+                  {itemsPerPage} per page
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setItemsPerPage(25)}>
+                  25 per page
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setItemsPerPage(50)}>
+                  50 per page
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setItemsPerPage(100)}>
+                  100 per page
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        </CardContent>
-      </Card>
+          <EnhancedMergerTable
+            mergers={filteredMergers}
+            highlightedMergerId={selectedMerger?.id || null}
+            onRowClick={handleRowClick}
+            currentStartIndex={currentStartIndex}
+            itemsPerPage={itemsPerPage}
+            setCurrentStartIndex={setCurrentStartIndex}
+          />
+        </Card>
+      </div>
+      
+      {/* Merger Details Modal */}
+      <MergerDetailsModal
+        merger={selectedMerger}
+        timelineEvents={timelineEvents}
+        isOpen={isModalOpen || isModalClosing}
+        onClose={closeSidebar}
+      />
     </div>
   );
-};
-
-export default Dashboard; 
+} 
