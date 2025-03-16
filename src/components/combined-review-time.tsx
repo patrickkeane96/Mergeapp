@@ -7,8 +7,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Merger } from '@/types/merger';
 import { differenceInBusinessDays } from 'date-fns';
 import { Clock } from 'lucide-react';
-import { PhaseProportionBar } from './phase-proportion-bar';
-import { ReviewTimeByIndustry } from './review-time-by-industry';
+import { PhaseProportionBar } from '@/components/phase-proportion-bar';
+import { ReviewTimeByIndustry } from '@/components/review-time-by-industry';
 
 interface TrendDataPoint {
   name: string;
@@ -93,7 +93,13 @@ export function CombinedReviewTime({ mergers, allMergers }: CombinedReviewTimePr
       merger.outcome !== 'under_review' && merger.endDate
     );
     
-    if (completedMergers.length === 0) return { phase1: 0, phase2: 0, total: 0 };
+    if (completedMergers.length === 0) return { 
+      phase1: 0, 
+      phase2: 0, 
+      total: 0,
+      phase1Percentage: 0,
+      phase2Percentage: 0
+    };
     
     const phase2Count = completedMergers.filter(merger => merger.hasPhase2).length;
     const phase1Count = completedMergers.length - phase2Count;
