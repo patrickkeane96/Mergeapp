@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { Inter } from 'next/font/google'
 import { NotificationsProvider } from '@/lib/contexts/NotificationsContext'
 import { Navbar } from '@/components/navbar'
+import { UserProvider } from '@/lib/contexts/UserContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -25,19 +26,21 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className={inter.className}>
-        <NotificationsProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <div className="flex min-h-screen flex-col">
-              <Navbar />
-              <main className="flex-1">{children}</main>
-            </div>
-          </ThemeProvider>
-        </NotificationsProvider>
+        <UserProvider>
+          <NotificationsProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <div className="flex min-h-screen flex-col">
+                <Navbar />
+                <main className="flex-1">{children}</main>
+              </div>
+            </ThemeProvider>
+          </NotificationsProvider>
+        </UserProvider>
       </body>
     </html>
   );

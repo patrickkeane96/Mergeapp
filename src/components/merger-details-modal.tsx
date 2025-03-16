@@ -16,6 +16,11 @@ import {
 import { Merger, TimelineEvent } from '@/types/merger';
 import { useNotifications } from '@/lib/contexts/NotificationsContext';
 import { cn } from '@/lib/utils';
+import { fetchMergerStatusHistory, MergerStatusHistoryEntry } from '@/lib/supabase/mergerUtils';
+import { generateTimelineEvents } from '@/lib/utils/merger-utils';
+import { UpdateMergerStatus } from './update-merger-status';
+import { Loader2 } from 'lucide-react';
+import { Timeline } from '@/components/ui/timeline';
 
 // Outcome configuration (for consistent colors and labels)
 const outcomeConfig = {
@@ -42,24 +47,46 @@ const outcomeConfig = {
   },
   cleared_with_commitments: {
     label: "Cleared with Commitments",
-    color: "#059669", // Different shade of green
-    barColor: "#059669",
-    bgColor: "bg-emerald-100",
-    textColor: "text-emerald-800"
+    color: "#3B82F6", // Blue
+    barColor: "#3B82F6",
+    bgColor: "bg-blue-100",
+    textColor: "text-blue-800"
   }
 };
 
 interface MergerDetailsModalProps {
   merger: Merger | null;
-  timelineEvents: TimelineEvent[];
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function MergerDetailsModal({ merger, timelineEvents, isOpen, onClose }: MergerDetailsModalProps) {
+export function MergerDetailsModal({ merger, isOpen, onClose }: MergerDetailsModalProps) {
   const { followMerger, unfollowMerger, isMergerFollowed, addNotification } = useNotifications();
   const [isClosing, setIsClosing] = useState(false);
   const [showContent, setShowContent] = useState(false);
+  const [statusHistory, setStatusHistory] = useState<MergerStatusHistoryEntry[]>([]);
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  
+  // Fetch status history when merger changes
+  useEffect(() => {
+    if (merger && isOpen) {
+      setIsLoadingHistory(true);
+      fetchMergerStatusHistory(merger.id)
+        .then(history => {
+          setStatusHistory(history);
+          // Generate new timeline events based on status history
+          const events = generateTimelineEvents(merger, history);
+          setTimelineEvents(events);
+        })
+        .catch(error => {
+          console.error('Error fetching merger status history:', error);
+        })
+        .finally(() => {
+          setIsLoadingHistory(false);
+        });
+    }
+  }, [merger, isOpen]);
   
   // Handle animation timing
   useEffect(() => {
@@ -98,7 +125,7 @@ export function MergerDetailsModal({ merger, timelineEvents, isOpen, onClose }: 
       addNotification({
         type: 'status_change',
         title: 'Unfollowed Merger',
-        message: `You're no longer following ${merger.name}.`,
+        message: `You're no longer following ${merger.target} / ${merger.acquirer}.`,
         mergerId: merger.id,
         industry: merger.industry,
       });
@@ -109,10 +136,26 @@ export function MergerDetailsModal({ merger, timelineEvents, isOpen, onClose }: 
       addNotification({
         type: 'status_change',
         title: 'Following Merger',
-        message: `You're now following ${merger.name}. You'll receive updates about status changes.`,
+        message: `You're now following ${merger.target} / ${merger.acquirer}. You'll receive updates about status changes.`,
         mergerId: merger.id,
         industry: merger.industry,
       });
+    }
+  };
+
+  const handleStatusUpdated = async () => {
+    if (merger) {
+      // Reload status history
+      try {
+        const history = await fetchMergerStatusHistory(merger.id);
+        setStatusHistory(history);
+        
+        // Generate timeline events based on status history
+        const events = generateTimelineEvents(merger, history);
+        setTimelineEvents(events);
+      } catch (error) {
+        console.error('Error refreshing merger status history:', error);
+      }
     }
   };
 
@@ -129,29 +172,32 @@ export function MergerDetailsModal({ merger, timelineEvents, isOpen, onClose }: 
           <CustomDialogTitle className="text-xl">Merger Details</CustomDialogTitle>
         </CustomDialogHeader>
         
-        <ScrollArea className="flex-1 max-h-[calc(90vh-8rem)]">
-          <div className="space-y-6 p-6 pt-0">
+        <div className="flex-1 overflow-y-auto px-6 pb-6 pt-0">
+          <div className="space-y-6">
             {/* Merger Header */}
             <div>
-              <h3 className="text-2xl font-bold">{merger.name}</h3>
-              <div className="flex items-center gap-2 mt-2">
-                <Badge
-                  className={cn(
-                    "px-2 py-1",
-                    outcomeConfig[merger.outcome].bgColor,
-                    outcomeConfig[merger.outcome].textColor
-                  )}
-                >
-                  {outcomeConfig[merger.outcome].label}
-                </Badge>
-                <span className="text-muted-foreground">
-                  {merger.endDate
-                    ? `Completed in ${differenceInBusinessDays(
+              <h3 className="text-2xl font-bold">{merger.target} / {merger.acquirer}</h3>
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={cn(
+                      "px-2 py-1",
+                      outcomeConfig[merger.outcome].bgColor,
+                      outcomeConfig[merger.outcome].textColor
+                    )}
+                  >
+                    {outcomeConfig[merger.outcome].label}
+                  </Badge>
+                  {merger.endDate && (
+                    <span className="text-muted-foreground">
+                      Completed in {differenceInBusinessDays(
                         merger.endDate,
                         merger.startDate
-                      )} business days`
-                    : "Ongoing review"}
-                </span>
+                      )} business days
+                    </span>
+                  )}
+                </div>
+                {/* Status update option removed for users */}
               </div>
             </div>
             
@@ -201,29 +247,69 @@ export function MergerDetailsModal({ merger, timelineEvents, isOpen, onClose }: 
               </CardContent>
             </Card>
             
-            {/* Timeline */}
+            {/* Combined Timeline and Status History */}
             <Card>
               <CardHeader>
-                <CardTitle>Review Timeline</CardTitle>
-                <CardDescription>Key events in the merger review process</CardDescription>
+                <CardTitle>Merger Timeline</CardTitle>
+                <CardDescription>
+                  {isLoadingHistory 
+                    ? "Loading timeline data..." 
+                    : statusHistory.length > 0 
+                      ? "Timeline based on actual status changes" 
+                      : "Key events in the merger review process"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="relative pl-6 border-l border-solid border-border h-full min-h-[200px]">
-                  {timelineEvents.map((event) => (
-                    <div key={event.id} className="mb-6 last:mb-0">
-                      <div className="absolute w-3 h-3 bg-primary rounded-full -left-1.5 mt-1.5" />
-                      <h4 className="font-medium">{event.name}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {format(event.date, "MMMM d, yyyy")}
-                      </p>
-                      <p className="mt-1 text-sm">{event.description}</p>
-                    </div>
-                  ))}
-                </div>
+                {isLoadingHistory ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : timelineEvents.length > 0 ? (
+                  <div className="space-y-6">
+                    {/* Status History Summary */}
+                    {statusHistory.length > 0 && (
+                      <div className="mb-6 p-4 bg-muted/30 rounded-lg">
+                        <h4 className="font-medium mb-2">Status History</h4>
+                        <div className="space-y-2">
+                          {statusHistory.map((entry, index) => (
+                            <div key={index} className="flex justify-between items-center text-sm">
+                              <div className="flex items-center gap-2">
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn(
+                                    "px-2 py-0.5",
+                                    entry.status.includes('clear') ? "bg-green-50 text-green-700 border-green-200" :
+                                    entry.status.includes('block') ? "bg-red-50 text-red-700 border-red-200" :
+                                    "bg-blue-50 text-blue-700 border-blue-200"
+                                  )}
+                                >
+                                  {entry.status.replace(/_/g, ' ')}
+                                </Badge>
+                                {entry.has_phase_2 && (
+                                  <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                    Phase 2
+                                  </Badge>
+                                )}
+                              </div>
+                              <span className="text-muted-foreground">
+                                {new Date(entry.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Timeline */}
+                    <Timeline events={timelineEvents} />
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No timeline events available</p>
+                )}
               </CardContent>
             </Card>
           </div>
-        </ScrollArea>
+        </div>
         
         <div className="px-6 py-4 border-t flex justify-end">
           <Button 

@@ -32,8 +32,22 @@ const outcomeConfig = {
   },
   cleared_with_commitments: {
     label: "Cleared with Commitments",
-    bgColor: "bg-emerald-100",
-    textColor: "text-emerald-800"
+    bgColor: "bg-blue-100",
+    textColor: "text-blue-800"
+  }
+};
+
+// Phase configuration
+const phaseConfig = {
+  phase1: {
+    label: "Phase 1",
+    bgColor: "bg-yellow-100",
+    textColor: "text-yellow-800"
+  },
+  phase2: {
+    label: "Phase 2",
+    bgColor: "bg-orange-100",
+    textColor: "text-orange-800"
   }
 };
 
@@ -116,18 +130,28 @@ export function FollowedMergersModule({
                       </div>
                       
                       <p className="text-sm mt-1">
-                        {merger.lastEvent ? merger.lastEvent : (merger.outcome === 'under_review' ? '' : outcomeConfig[merger.outcome].label)}
+                        {merger.lastEvent && 
+                         !merger.lastEvent.includes("Phase") && 
+                         merger.lastEvent !== outcomeConfig[merger.outcome]?.label 
+                          ? merger.lastEvent 
+                          : ""}
                       </p>
                       
                       <div className="flex items-center gap-2 mt-2">                        
                         <Badge
                           className={cn(
                             "text-xs px-1.5 py-0.5",
-                            outcomeConfig[merger.outcome].bgColor,
-                            outcomeConfig[merger.outcome].textColor
+                            merger.outcome === 'under_review' 
+                              ? (merger.hasPhase2 ? phaseConfig.phase2.bgColor : phaseConfig.phase1.bgColor)
+                              : outcomeConfig[merger.outcome].bgColor,
+                            merger.outcome === 'under_review'
+                              ? (merger.hasPhase2 ? phaseConfig.phase2.textColor : phaseConfig.phase1.textColor)
+                              : outcomeConfig[merger.outcome].textColor
                           )}
                         >
-                          {outcomeConfig[merger.outcome].label}
+                          {merger.outcome === 'under_review'
+                            ? `Under review - ${merger.hasPhase2 ? "Phase 2" : "Phase 1"}`
+                            : outcomeConfig[merger.outcome].label}
                         </Badge>
                       </div>
                     </div>
@@ -142,7 +166,6 @@ export function FollowedMergersModule({
       {/* Merger Details Modal */}
       <MergerDetailsModal
         merger={selectedMerger}
-        timelineEvents={timelineEvents}
         isOpen={isModalOpen || isModalClosing}
         onClose={handleModalClose}
       />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ChevronRight, Bell, Clock, AlertCircle, CheckCircle, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,19 +58,34 @@ export function NewsModule({
   notifications, 
   maxItems = 5
 }: NewsModuleProps) {
-  const { mergers, isMergerFollowed } = useNotifications();
+  const { mergers, isMergerFollowed, markAllAsRead } = useNotifications();
   const [selectedMerger, setSelectedMerger] = useState<Merger | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalClosing, setIsModalClosing] = useState(false);
+  const [localNotifications, setLocalNotifications] = useState<Notification[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [showReadNotifications, setShowReadNotifications] = useState(false);
+  const [markedAllAsRead, setMarkedAllAsRead] = useState(false);
   
-  // Filter out notifications about following/unfollowing mergers
-  const filteredNotifications = notifications
+  // Update local notifications when props change
+  useEffect(() => {
+    // Only update local notifications if we haven't marked all as read
+    // or if we've explicitly chosen to show read notifications
+    if (!markedAllAsRead || showReadNotifications) {
+      setLocalNotifications(notifications);
+    }
+  }, [notifications, refreshKey, markedAllAsRead, showReadNotifications]);
+  
+  // Filter out notifications about following/unfollowing mergers and read notifications
+  const filteredNotifications = localNotifications
     .filter(notification => !(
       notification.type === 'status_change' && 
       (notification.title.includes('Following Merger') || 
        notification.title.includes('Unfollowed Merger'))
     ))
+    // Only show unread notifications on the dashboard
+    .filter(notification => !notification.isRead || showReadNotifications)
     .slice(0, maxItems);
   
   // Handle notification click to open merger details
@@ -92,6 +107,27 @@ export function NewsModule({
     }, 200);
   };
   
+  // Handle mark all as read with local state update
+  const handleMarkAllAsRead = async () => {
+    await markAllAsRead();
+    
+    // Update local state to mark all as read
+    setLocalNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    
+    // Set flag to prevent updates from external changes
+    setMarkedAllAsRead(true);
+    
+    // Force a refresh
+    setRefreshKey(prev => prev + 1);
+  };
+  
+  // Reset the markedAllAsRead flag when switching to show read notifications
+  useEffect(() => {
+    if (showReadNotifications) {
+      setMarkedAllAsRead(false);
+    }
+  }, [showReadNotifications]);
+  
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -99,8 +135,8 @@ export function NewsModule({
           <CardTitle>News</CardTitle>
           <CardDescription>Latest merger updates and activities</CardDescription>
         </div>
-        {notifications.length > 0 && (
-          <Button variant="outline" size="sm" onClick={() => window.markAllAsRead?.()}>
+        {notifications.filter(n => !n.isRead).length > 0 && (
+          <Button variant="outline" size="sm" onClick={handleMarkAllAsRead}>
             Mark all as read
           </Button>
         )}
@@ -164,7 +200,12 @@ export function NewsModule({
                           </div>
                         </div>
                         
-                        <p className="text-sm mt-1">{notification.message}</p>
+                        {/* Only show the message if it's not a repetition of the merger name */}
+                        {notification.message && 
+                         notification.mergerId && 
+                         !notification.message.includes(mergers.find(m => m.id === notification.mergerId)?.name || '') ? (
+                          <p className="text-sm mt-1">{notification.message}</p>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -186,7 +227,6 @@ export function NewsModule({
       {/* Merger Details Modal */}
       <MergerDetailsModal
         merger={selectedMerger}
-        timelineEvents={timelineEvents}
         isOpen={isModalOpen || isModalClosing}
         onClose={handleModalClose}
       />

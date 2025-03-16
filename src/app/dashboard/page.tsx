@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { addMonths, format, addBusinessDays, differenceInBusinessDays } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Bell, RefreshCw, Zap, ChevronDown } from "lucide-react";
+import { Bell, RefreshCw, Zap, ChevronDown, Search } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FollowIndustryButton } from "@/components/ui/follow-industry-button";
 import { useNotifications } from "@/lib/contexts/NotificationsContext";
@@ -24,9 +24,11 @@ import { NewsModule } from "@/components/news-module";
 import { FollowedMergersModule } from "@/components/followed-mergers-module";
 import { EnhancedMergerTable } from "@/components/enhanced-merger-table";
 import { MergerDetailsModal } from '@/components/merger-details-modal';
+import { AskSearchModal } from '@/components/ask-search-modal';
 import { generateTimelineEvents } from "@/lib/utils/merger-utils";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useMergers } from "@/lib/hooks/useMergers";
 
 // Outcome configuration (for consistent colors and labels)
 const outcomeConfig = {
@@ -53,90 +55,11 @@ const outcomeConfig = {
   },
   cleared_with_commitments: {
     label: "Cleared with Commitments",
-    color: "#059669", // Different shade of green
-    barColor: "#059669",
-    bgColor: "bg-emerald-100",
-    textColor: "text-emerald-800"
+    color: "#3B82F6", // Blue
+    barColor: "#3B82F6",
+    bgColor: "bg-blue-100",
+    textColor: "text-blue-800"
   }
-};
-
-// Generate placeholder data
-const generatePlaceholderData = (): Merger[] => {
-  const industries = [
-    "Technology",
-    "Healthcare",
-    "Energy",
-    "Financial Services",
-    "Retail",
-    "Media",
-    "Telecommunications",
-    "Manufacturing",
-    "Consumer Goods",
-    "Transportation"
-  ];
-  
-  const descriptions = [
-    "Horizontal merger between two major competitors in the market.",
-    "Vertical integration of supply chain components.",
-    "Conglomerate merger expanding into adjacent markets.",
-    "Acquisition of a startup with innovative technology.",
-    "Merger of equals to achieve market consolidation.",
-    "Strategic acquisition to enter new geographic markets.",
-    "Merger to achieve economies of scale and cost synergies.",
-    "Acquisition to diversify product portfolio.",
-    "Merger to strengthen market position against emerging competitors.",
-    "Acquisition of distressed assets at favorable valuation."
-  ];
-  
-  const outcomes: MergerOutcome[] = ['under_review', 'cleared', 'blocked', 'cleared_with_commitments'];
-  
-  const mergers: Merger[] = [];
-  const currentDate = new Date();
-  
-  // Generate 50 random mergers over the past 2 years
-  for (let i = 0; i < 50; i++) {
-    const startMonthsAgo = Math.floor(Math.random() * 24); // Random start date within past 24 months
-    const startDate = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() - startMonthsAgo,
-      Math.floor(Math.random() * 28) + 1
-    );
-    
-    const durationMonths = Math.floor(Math.random() * 6) + 1; // 1-6 months duration
-    const endDate = i % 10 === 0 ? null : new Date(startDate);
-    if (endDate) endDate.setMonth(endDate.getMonth() + durationMonths);
-    
-    // Determine outcome based on date
-    let outcome: MergerOutcome = 'under_review';
-    if (endDate) {
-      // Distribution: 60% cleared, 15% blocked, 25% cleared with commitments
-      const rand = Math.random();
-      if (rand < 0.6) outcome = 'cleared';
-      else if (rand < 0.75) outcome = 'blocked';
-      else outcome = 'cleared_with_commitments';
-    }
-    
-    // For ongoing mergers, always 'under_review'
-    if (!endDate) outcome = 'under_review';
-    
-    // Add some future notification features
-    const hasNotifications = Math.random() > 0.7;
-    const isFollowed = Math.random() > 0.8;
-    
-    mergers.push({
-      id: `merger-${i}`,
-      name: `Merger Case ${i + 1}`,
-      startDate,
-      endDate,
-      industry: industries[Math.floor(Math.random() * industries.length)] || "Other",
-      description: descriptions[Math.floor(Math.random() * descriptions.length)],
-      outcome,
-      hasNotifications,
-      isFollowed
-    });
-  }
-  
-  return mergers;
 };
 
 // Create a client component that uses useSearchParams
@@ -159,8 +82,19 @@ function DashboardContent() {
     mergers
   } = useNotifications();
 
-  const allMergers = useMemo(() => generatePlaceholderData(), []);
-  const [displayMergers, setDisplayMergers] = useState<Merger[]>(allMergers);
+  // Replace the placeholder data with real data from Supabase
+  const { 
+    mergers: supabaseMergers, 
+    loading, 
+    error, 
+    fetchMergers, 
+    toggleFollowMerger 
+  } = useMergers();
+  
+  // Use the mergers from Supabase instead of generating placeholder data
+  // const data = useMemo(() => generatePlaceholderData(), []);
+  
+  const [displayMergers, setDisplayMergers] = useState<Merger[]>(supabaseMergers);
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [dateRange, setDateRange] = useState<DateRange>({
     from: undefined,
@@ -176,6 +110,7 @@ function DashboardContent() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalClosing, setIsModalClosing] = useState(false);
+  const [isAskModalOpen, setIsAskModalOpen] = useState(false);
 
   // Create chart data by grouping mergers by month and outcome
   const allChartData = useMemo(() => {
@@ -189,7 +124,7 @@ function DashboardContent() {
     }> = {};
     
     // Count mergers by month and outcome
-    allMergers.forEach(merger => {
+    supabaseMergers.forEach(merger => {
       const month = `${merger.startDate.getFullYear()}-${String(merger.startDate.getMonth() + 1).padStart(2, '0')}`;
       
       if (!monthData[month]) {
@@ -227,7 +162,7 @@ function DashboardContent() {
     });
     
     return data;
-  }, [allMergers]);
+  }, [supabaseMergers]);
   
   // Handle chart bar click to filter table
   const handleBarClick = (data: any) => {
@@ -303,9 +238,9 @@ function DashboardContent() {
   // Get unique industries for the dropdown
   const industries = useMemo(() => {
     const uniqueIndustries = new Set<string>();
-    allMergers.forEach(merger => uniqueIndustries.add(merger.industry));
+    supabaseMergers.forEach(merger => uniqueIndustries.add(merger.industry));
     return Array.from(uniqueIndustries).sort();
-  }, [allMergers]);
+  }, [supabaseMergers]);
   
   // If a mergerId is provided in the URL, scroll to that merger and follow it
   useEffect(() => {
@@ -342,15 +277,9 @@ function DashboardContent() {
     const newOutcomes = possibleOutcomes[currentOutcome];
     const newOutcome = newOutcomes[Math.floor(Math.random() * newOutcomes.length)];
     
-    // Update the merger in the list
-    setDisplayMergers(prevMergers => 
-      prevMergers.map(m => 
-        m.id === merger.id 
-          ? { ...m, outcome: newOutcome } 
-          : m
-      )
-    );
-
+    // Don't actually update the merger in the list, just create a notification
+    // about a hypothetical status change
+    
     // Update the notification creation in simulateStatusChange function
     const getStatusMessage = (outcome: MergerOutcome) => {
       switch(outcome) {
@@ -370,16 +299,6 @@ function DashboardContent() {
       mergerId: merger.id,
       industry: merger.industry,
       outcome: newOutcome
-    });
-
-    // For NOCC issuance
-    addNotification({
-      type: 'nocc_issued',
-      title: `NOCC Issued for ${merger.name}`,
-      message: 'NOCC issued',
-      mergerId: merger.id,
-      industry: merger.industry,
-      outcome: merger.outcome
     });
   };
 
@@ -448,11 +367,6 @@ function DashboardContent() {
 
   // Sample data generation just for demonstration
   useEffect(() => {
-    // Expose markAllAsRead function to window for buttons to access
-    if (typeof window !== 'undefined') {
-      window.markAllAsRead = markAllAsRead;
-    }
-
     // This would come from a real data source in a production app
     const interval = setInterval(() => {
       simulateRandomUpdates();
@@ -460,18 +374,53 @@ function DashboardContent() {
 
     return () => {
       clearInterval(interval);
-      // Clean up
-      if (typeof window !== 'undefined') {
-        delete window.markAllAsRead;
-      }
     };
-  }, [markAllAsRead, simulateRandomUpdates]);
+  }, [simulateRandomUpdates]);
+
+  // Update the handleFollowToggle function to use the Supabase API
+  const handleFollowToggle = async (id: string, isFollowed: boolean) => {
+    try {
+      await toggleFollowMerger(id, isFollowed);
+      // No need to update the state manually as the useMergers hook handles it
+    } catch (error) {
+      console.error('Error toggling follow status:', error);
+      // Show an error notification
+      addNotification({
+        title: 'Error',
+        message: 'Failed to update follow status',
+        type: 'status_change'
+      });
+    }
+  };
+
+  // Update displayMergers when supabaseMergers changes
+  useEffect(() => {
+    if (supabaseMergers) {
+      setDisplayMergers(supabaseMergers);
+    }
+  }, [supabaseMergers]);
 
   return (
-    <div className="flex-1 space-y-6 p-6">
+    <div className="flex-1 space-y-6 p-6 max-w-[1536px] mx-auto">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-bold">Merger Dashboard</h1>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              console.log("Opening Ask modal");
+              setTimeout(() => {
+                console.log("Setting isAskModalOpen to true");
+                setIsAskModalOpen(true);
+                console.log("isAskModalOpen set to true:", isAskModalOpen);
+                setSearchQuery(searchQuery + " ");
+              }, 100);
+            }}
+            className="gap-2"
+          >
+            <Search className="h-4 w-4" />
+            Ask
+          </Button>
           <Button variant="outline" onClick={simulateRandomUpdates}>
             <Bell className="h-4 w-4 mr-2" />
             Simulate News
@@ -504,7 +453,7 @@ function DashboardContent() {
       <div className="mt-6">
         <Card className="p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Active Mergers</h2>
+            <h2 className="text-2xl font-bold">Active Reviews</h2>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-1">
@@ -525,14 +474,30 @@ function DashboardContent() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <EnhancedMergerTable
-            mergers={filteredMergers}
-            highlightedMergerId={selectedMerger?.id || null}
-            onRowClick={handleRowClick}
-            currentStartIndex={currentStartIndex}
-            itemsPerPage={itemsPerPage}
-            setCurrentStartIndex={setCurrentStartIndex}
-          />
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex flex-col items-center space-y-4">
+                <RefreshCw className="w-12 h-12 text-primary animate-spin" />
+                <p className="text-lg font-medium">Loading merger data...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex flex-col items-center space-y-4">
+                <p className="text-lg font-medium text-red-500">Error loading merger data</p>
+                <Button onClick={() => fetchMergers()}>Retry</Button>
+              </div>
+            </div>
+          ) : (
+            <EnhancedMergerTable
+              mergers={filteredMergers}
+              highlightedMergerId={selectedMerger?.id || null}
+              onRowClick={handleRowClick}
+              currentStartIndex={currentStartIndex}
+              itemsPerPage={itemsPerPage}
+              setCurrentStartIndex={setCurrentStartIndex}
+            />
+          )}
         </Card>
       </div>
       
@@ -542,6 +507,13 @@ function DashboardContent() {
         timelineEvents={timelineEvents}
         isOpen={isModalOpen || isModalClosing}
         onClose={closeSidebar}
+      />
+
+      {/* Natural Language Search Modal */}
+      <AskSearchModal 
+        isOpen={isAskModalOpen}
+        onClose={() => setIsAskModalOpen(false)}
+        allMergers={supabaseMergers}
       />
     </div>
   );
