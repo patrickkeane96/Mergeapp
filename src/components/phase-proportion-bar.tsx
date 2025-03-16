@@ -3,17 +3,17 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 
-interface PhaseProportionProps {
+interface PhaseProportionBarProps {
   phaseData: {
     phase1: number;
     phase2: number;
     total: number;
     phase1Percentage: number;
     phase2Percentage: number;
-  };
+  }
 }
 
-export function PhaseProportionBar({ phaseData }: PhaseProportionProps) {
+export function PhaseProportionBar({ phaseData }: PhaseProportionBarProps) {
   const hasData = phaseData.total > 0;
   
   return (
@@ -63,7 +63,7 @@ export function PhaseProportionBar({ phaseData }: PhaseProportionProps) {
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-[100px] text-muted-foreground">
+          <div className="flex items-center justify-center h-[200px] text-muted-foreground">
             No completed reviews to analyze
           </div>
         )}

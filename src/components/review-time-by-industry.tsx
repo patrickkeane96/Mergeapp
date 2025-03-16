@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Merger } from '@/types/merger';
 import { differenceInBusinessDays } from 'date-fns';
@@ -17,7 +17,7 @@ interface ReviewTimeByIndustryProps {
 
 export function ReviewTimeByIndustry({ allMergers }: ReviewTimeByIndustryProps) {
   // Calculate average review time by industry
-  const industryData: IndustryReviewTime[] = React.useMemo(() => {
+  const industryData = useMemo(() => {
     const industryReviewTimes: Record<string, { totalDays: number, count: number }> = {};
     
     // Only include completed mergers with end dates
@@ -51,17 +51,14 @@ export function ReviewTimeByIndustry({ allMergers }: ReviewTimeByIndustryProps) 
   }, [allMergers]);
   
   const hasData = industryData.length > 0;
-  
-  // Calculate max days for proper scaling
-  const maxDays = hasData ? Math.max(...industryData.map(d => d.avgDays)) : 0;
 
   return (
     <Card className="h-full">
-      <CardContent className="p-4 flex flex-col">
+      <CardContent className="p-4">
         <h3 className="text-base font-medium mb-4">Review Time by Industry</h3>
         
         {hasData ? (
-          <div className="space-y-3 flex-grow min-h-[450px]">
+          <div className="space-y-3 min-h-[168px]">
             {industryData.map(item => (
               <div key={item.industry} className="relative">
                 <div className="flex justify-between text-sm mb-1">
@@ -76,7 +73,7 @@ export function ReviewTimeByIndustry({ allMergers }: ReviewTimeByIndustryProps) 
                   <div 
                     className="h-full bg-primary rounded-full" 
                     style={{ 
-                      width: `${Math.min(100, (item.avgDays / maxDays) * 100)}%` 
+                      width: `${Math.min(100, (item.avgDays / Math.max(...industryData.map(d => d.avgDays))) * 100)}%` 
                     }}
                   />
                 </div>
@@ -84,7 +81,7 @@ export function ReviewTimeByIndustry({ allMergers }: ReviewTimeByIndustryProps) 
             ))}
           </div>
         ) : (
-          <div className="flex items-center justify-center h-[450px] text-muted-foreground">
+          <div className="flex items-center justify-center h-[168px] text-muted-foreground">
             No completed reviews to analyze
           </div>
         )}

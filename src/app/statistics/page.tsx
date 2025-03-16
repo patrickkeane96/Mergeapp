@@ -13,6 +13,8 @@ import { IndustryPieChart } from "@/components/industry-pie-chart";
 import { CombinedReviewTime } from "@/components/combined-review-time";
 import { OutcomeDistribution } from "@/components/outcome-distribution";
 import { ReviewTimeTrend } from "@/components/review-time-trend";
+import { PhaseProportionBar } from "@/components/phase-proportion-bar";
+import { ReviewTimeByIndustry } from "@/components/review-time-by-industry";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,150 +23,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { useMergers } from "@/lib/hooks/useMergers";
-
-// Component for the Phase Proportion Bar
-export function PhaseProportionBar({ phaseData }: { 
-  phaseData: {
-    phase1: number;
-    phase2: number;
-    total: number;
-    phase1Percentage: number;
-    phase2Percentage: number;
-  }
-}) {
-  const hasData = phaseData.total > 0;
-  
-  return (
-    <Card className="h-full">
-      <CardContent className="p-4">
-        <h3 className="text-base font-medium mb-4">Phase Distribution</h3>
-        
-        {hasData ? (
-          <>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium">Phase 1</span>
-              <span className="text-sm font-medium">Phase 2</span>
-            </div>
-            
-            <div className="relative h-12 rounded-lg overflow-hidden border flex">
-              <div 
-                className="bg-[#1B3B6F] flex items-center justify-center text-white"
-                style={{ width: `${phaseData.phase1Percentage}%` }}
-              >
-                <span className="text-sm font-medium">
-                  {phaseData.phase1Percentage}%
-                </span>
-              </div>
-              <div 
-                className="bg-[#90CAF9] flex items-center justify-center text-blue-900"
-                style={{ width: `${phaseData.phase2Percentage}%` }}
-              >
-                <span className="text-sm font-medium">
-                  {phaseData.phase2Percentage}%
-                </span>
-              </div>
-            </div>
-            
-            <div className="flex justify-between mt-2 text-sm text-muted-foreground">
-              <div>
-                <span className="font-medium">{phaseData.phase1}</span> cases
-              </div>
-              <div>
-                <span className="font-medium">{phaseData.phase2}</span> cases
-              </div>
-            </div>
-            
-            <div className="mt-4 pt-3 border-t">
-              <div className="text-sm text-muted-foreground">
-                <span className="font-medium">{phaseData.phase2Percentage}%</span> of cases require in-depth Phase 2 review
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-[200px] text-muted-foreground">
-            No completed reviews to analyze
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// Component for Review Time by Industry
-export function ReviewTimeByIndustry({ allMergers }: { allMergers: Merger[] }) {
-  // Calculate average review time by industry
-  const industryData = useMemo(() => {
-    const industryReviewTimes: Record<string, { totalDays: number, count: number }> = {};
-    
-    // Only include completed mergers with end dates
-    const completedMergers = allMergers.filter(merger => 
-      merger.outcome !== 'under_review' && merger.endDate
-    );
-    
-    // Group by industry
-    completedMergers.forEach(merger => {
-      if (!merger.endDate) return;
-      
-      // Calculate business days
-      const days = differenceInBusinessDays(merger.endDate, merger.startDate);
-      
-      if (!industryReviewTimes[merger.industry]) {
-        industryReviewTimes[merger.industry] = { totalDays: 0, count: 0 };
-      }
-      
-      industryReviewTimes[merger.industry].totalDays += days;
-      industryReviewTimes[merger.industry].count++;
-    });
-    
-    // Calculate average for each industry and sort by average time (descending)
-    return Object.entries(industryReviewTimes)
-      .map(([industry, data]) => ({
-        industry,
-        avgDays: Math.round(data.totalDays / data.count),
-        count: data.count
-      }))
-      .sort((a, b) => b.avgDays - a.avgDays)
-  }, [allMergers]);
-  
-  const hasData = industryData.length > 0;
-
-  return (
-    <Card className="h-full">
-      <CardContent className="p-4">
-        <h3 className="text-base font-medium mb-4">Review Time by Industry</h3>
-        
-        {hasData ? (
-          <div className="space-y-3 min-h-[168px]">
-            {industryData.map(item => (
-              <div key={item.industry} className="relative">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="font-medium truncate max-w-[60%]" title={item.industry}>
-                    {item.industry}
-                  </span>
-                  <span className="text-muted-foreground whitespace-nowrap">
-                    {item.avgDays} days ({item.count} reviews)
-                  </span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary rounded-full" 
-                    style={{ 
-                      width: `${Math.min(100, (item.avgDays / Math.max(...industryData.map(d => d.avgDays))) * 100)}%` 
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-[168px] text-muted-foreground">
-            No completed reviews to analyze
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function StatisticsPage() {
   const { mergers: allMergers, loading } = useMergers();
