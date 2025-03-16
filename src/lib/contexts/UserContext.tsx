@@ -136,6 +136,20 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
+  useEffect(() => {
+    // Initial fetch
+    fetchUsers();
+
+    // Set up polling interval
+    const interval = setInterval(() => {
+      if (users.length === 0) {
+        fetchUsers();
+      }
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchUsers, users]);
+
   // Context value
   const value = {
     currentUser,

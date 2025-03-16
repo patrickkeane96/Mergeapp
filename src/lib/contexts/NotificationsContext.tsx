@@ -560,6 +560,20 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     refreshMergers,
   };
   
+  useEffect(() => {
+    // Initial fetch
+    fetchFollowedMergers();
+    fetchNotifications();
+
+    // Set up polling interval
+    const interval = setInterval(() => {
+      fetchFollowedMergers();
+      fetchNotifications();
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchFollowedMergers, fetchNotifications]);
+  
   return (
     <NotificationsContext.Provider value={value}>
       {children}

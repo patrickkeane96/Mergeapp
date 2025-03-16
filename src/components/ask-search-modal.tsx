@@ -34,7 +34,8 @@ type AskSearchModalProps = {
 const basicFiltering = (query: string, mergers: Merger[]): Merger[] => {
   const lowerQuery = query.toLowerCase();
   return mergers.filter(merger => 
-    merger.name.toLowerCase().includes(lowerQuery) ||
+    merger.target.toLowerCase().includes(lowerQuery) ||
+    merger.acquirer.toLowerCase().includes(lowerQuery) ||
     merger.industry.toLowerCase().includes(lowerQuery) ||
     merger.description?.toLowerCase().includes(lowerQuery) ||
     merger.outcome.toLowerCase().includes(lowerQuery)
@@ -224,7 +225,7 @@ export function AskSearchModal({ isOpen, onClose, allMergers }: AskSearchModalPr
 
       // Keyword search
       if (filters.keywords && filters.keywords.length > 0) {
-        const mergerText = `${merger.name} ${merger.description} ${merger.industry}`.toLowerCase();
+        const mergerText = `${merger.target} ${merger.acquirer} ${merger.description} ${merger.industry}`.toLowerCase();
         const hasKeyword = filters.keywords.some((keyword: string) => 
           mergerText.includes(keyword.toLowerCase())
         );
@@ -462,155 +463,179 @@ export function AskSearchModal({ isOpen, onClose, allMergers }: AskSearchModalPr
     }
   }, [searchMode, aiAvailable]);
 
+  useEffect(() => {
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [timeoutId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchAttempted(false);
+    }
+  }, [isOpen, searchAttempted]);
+
+  const handleFormSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    handleSearch();
+  }, [handleSearch]);
+
   return (
     <>
       <CustomDialog open={isOpen || isClosing} onOpenChange={(open) => !open && handleClose()}>
-        <CustomDialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col" showContent={showContent}>
-          <CustomDialogHeader>
-            <CustomDialogTitle>Ask about Mergers</CustomDialogTitle>
-            <CustomDialogDescription>
-              {searchMode === 'basic' 
-                ? "Search for mergers using keywords (results will appear as you type)" 
-                : "Ask natural language questions like 'Show me healthcare mergers in the last 30 days'"}
-            </CustomDialogDescription>
+        <CustomDialogContent 
+          className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden p-0"
+          showContent={showContent}
+          onCloseClick={handleClose}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          forceMount
+        >
+          <CustomDialogHeader className="flex-shrink-0 p-6 pb-3">
+            <CustomDialogTitle className="text-xl">Search Mergers</CustomDialogTitle>
           </CustomDialogHeader>
           
-          <Tabs 
-            defaultValue="basic" 
-            className="w-full" 
-            onValueChange={(value) => {
-              if (value === 'ai' && aiAvailable === false) {
-                setError('AI search is not available: OpenAI API key not configured.');
-                return;
-              }
-              setSearchMode(value as 'basic' | 'ai');
-            }}
-            value={searchMode}
-          >
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="basic">Basic Search</TabsTrigger>
-              <TabsTrigger 
-                value="ai" 
-                className="flex items-center gap-1"
-                disabled={aiAvailable === false}
+          <div className="flex-1 overflow-y-auto px-6 pb-6 pt-0">
+            <form onSubmit={handleFormSubmit} className="space-y-4">
+              <Tabs 
+                defaultValue="basic" 
+                className="w-full" 
+                onValueChange={(value) => {
+                  if (value === 'ai' && aiAvailable === false) {
+                    setError('AI search is not available: OpenAI API key not configured.');
+                    return;
+                  }
+                  setSearchMode(value as 'basic' | 'ai');
+                }}
+                value={searchMode}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>AI Search</span>
-                {aiAvailable === false && <span className="text-xs ml-1">(Unavailable)</span>}
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="basic" className="mt-0">
-              <div className="flex items-center gap-2 my-4">
-                <Input
-                  ref={inputRef}
-                  placeholder="Search mergers by keywords..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="flex-1"
-                  disabled={isSearching}
-                />
-                <Button 
-                  onClick={handleBasicSearch} 
-                  disabled={isSearching || !searchQuery.trim()}
-                >
-                  {isSearching ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <SearchIcon className="h-4 w-4 mr-2" />
-                  )}
-                  Search
-                </Button>
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="ai" className="mt-0">
-              <div className="flex items-center gap-2 my-4">
-                <Input
-                  ref={inputRef}
-                  placeholder="E.g., Healthcare mergers in the last 30 days that were cleared"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="flex-1"
-                  disabled={isSearching || isAiLoading}
-                />
-                <Button 
-                  onClick={handleAiSearch}
-                  disabled={isSearching || isAiLoading || !searchQuery.trim()}
-                >
-                  {isSearching || isAiLoading ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4 mr-2" />
-                  )}
-                  Ask
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mb-2">
-                Try queries like "Blocked technology mergers" or "Media mergers from 2023 that were cleared with commitments"
-              </p>
-            </TabsContent>
-          </Tabs>
-          
-          {explanation && (
-            <div className="text-sm bg-muted p-3 rounded-md mb-4">
-              {explanation}
-            </div>
-          )}
-
-          {error && (
-            <div className="text-sm bg-red-100 text-red-800 p-3 rounded-md mb-4 flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-              <div>{error}</div>
-            </div>
-          )}
-          
-          <Separator className="my-2" />
-          
-          <ScrollArea className="flex-1 max-h-[400px]">
-            {filteredMergers.length > 0 ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  {filteredMergers.length} merger{filteredMergers.length !== 1 ? 's' : ''} found
-                </p>
-                <EnhancedMergerTable
-                  mergers={filteredMergers}
-                  highlightedMergerId={null}
-                  onRowClick={handleRowClick}
-                  currentStartIndex={0}
-                  itemsPerPage={10}
-                  setCurrentStartIndex={() => {}}
-                />
-              </div>
-            ) : isSearching || isAiLoading ? (
-              <div className="flex flex-col items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-4 text-center text-muted-foreground">
-                  {searchMode === 'ai' ? 'Processing your question...' : 'Searching for mergers...'}
-                </p>
-                {searchMode === 'ai' && (
-                  <p className="mt-2 text-center text-xs text-muted-foreground">
-                    (If this takes too long, we'll automatically use basic search)
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="basic">Basic Search</TabsTrigger>
+                  <TabsTrigger 
+                    value="ai" 
+                    className="flex items-center gap-1"
+                    disabled={aiAvailable === false}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>AI Search</span>
+                    {aiAvailable === false && <span className="text-xs ml-1">(Unavailable)</span>}
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="basic" className="mt-0">
+                  <div className="flex items-center gap-2 my-4">
+                    <Input
+                      ref={inputRef}
+                      placeholder="Search mergers by keywords..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="flex-1"
+                      disabled={isSearching}
+                    />
+                    <Button 
+                      onClick={handleBasicSearch} 
+                      disabled={isSearching || !searchQuery.trim()}
+                    >
+                      {isSearching ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <SearchIcon className="h-4 w-4 mr-2" />
+                      )}
+                      Search
+                    </Button>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="ai" className="mt-0">
+                  <div className="flex items-center gap-2 my-4">
+                    <Input
+                      ref={inputRef}
+                      placeholder="E.g., Healthcare mergers in the last 30 days that were cleared"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="flex-1"
+                      disabled={isSearching || isAiLoading}
+                    />
+                    <Button 
+                      onClick={handleAiSearch}
+                      disabled={isSearching || isAiLoading || !searchQuery.trim()}
+                    >
+                      {isSearching || isAiLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-2" />
+                      )}
+                      Ask
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Try queries like "Blocked technology mergers" or "Media mergers from 2023 that were cleared with commitments"
                   </p>
+                </TabsContent>
+              </Tabs>
+              
+              {explanation && (
+                <div className="text-sm bg-muted p-3 rounded-md mb-4">
+                  {explanation}
+                </div>
+              )}
+
+              {error && (
+                <div className="text-sm bg-red-100 text-red-800 p-3 rounded-md mb-4 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <div>{error}</div>
+                </div>
+              )}
+              
+              <Separator className="my-2" />
+              
+              <ScrollArea className="flex-1 max-h-[400px]">
+                {filteredMergers.length > 0 ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      {filteredMergers.length} merger{filteredMergers.length !== 1 ? 's' : ''} found
+                    </p>
+                    <EnhancedMergerTable
+                      mergers={filteredMergers}
+                      highlightedMergerId={null}
+                      onRowClick={handleRowClick}
+                      currentStartIndex={0}
+                      itemsPerPage={10}
+                      setCurrentStartIndex={() => {}}
+                    />
+                  </div>
+                ) : isSearching || isAiLoading ? (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="mt-4 text-center text-muted-foreground">
+                      {searchMode === 'ai' ? 'Processing your question...' : 'Searching for mergers...'}
+                    </p>
+                    {searchMode === 'ai' && (
+                      <p className="mt-2 text-center text-xs text-muted-foreground">
+                        (If this takes too long, we'll automatically use basic search)
+                      </p>
+                    )}
+                  </div>
+                ) : searchAttempted && searchQuery ? (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <p className="text-center text-muted-foreground">No results found</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <SearchIcon className="h-8 w-8 text-muted-foreground" />
+                    <p className="mt-4 text-center text-muted-foreground">
+                      {searchMode === 'ai' 
+                        ? 'Ask a natural language question about mergers' 
+                        : 'Enter search terms to find matching mergers'}
+                    </p>
+                  </div>
                 )}
-              </div>
-            ) : searchAttempted && searchQuery ? (
-              <div className="flex flex-col items-center justify-center py-8">
-                <p className="text-center text-muted-foreground">No results found</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8">
-                <SearchIcon className="h-8 w-8 text-muted-foreground" />
-                <p className="mt-4 text-center text-muted-foreground">
-                  {searchMode === 'ai' 
-                    ? 'Ask a natural language question about mergers' 
-                    : 'Enter search terms to find matching mergers'}
-                </p>
-              </div>
-            )}
-          </ScrollArea>
+              </ScrollArea>
+            </form>
+          </div>
           
           <CustomDialogFooter className="mt-4">
             <Button variant="outline" onClick={handleClose}>

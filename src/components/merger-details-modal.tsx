@@ -58,14 +58,15 @@ interface MergerDetailsModalProps {
   merger: Merger | null;
   isOpen: boolean;
   onClose: () => void;
+  timelineEvents?: TimelineEvent[];
 }
 
-export function MergerDetailsModal({ merger, isOpen, onClose }: MergerDetailsModalProps) {
+export function MergerDetailsModal({ merger, isOpen, onClose, timelineEvents: initialTimelineEvents }: MergerDetailsModalProps) {
   const { followMerger, unfollowMerger, isMergerFollowed, addNotification } = useNotifications();
   const [isClosing, setIsClosing] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const [statusHistory, setStatusHistory] = useState<MergerStatusHistoryEntry[]>([]);
-  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>(initialTimelineEvents || []);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
   // Fetch status history when merger changes

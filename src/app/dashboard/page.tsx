@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, Suspense } from "react";
+import React, { useState, useEffect, useMemo, Suspense, useCallback } from "react";
 import { useSearchParams } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -225,7 +225,8 @@ function DashboardContent() {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         return (
-          merger.name.toLowerCase().includes(query) ||
+          merger.target.toLowerCase().includes(query) ||
+          merger.acquirer.toLowerCase().includes(query) ||
           merger.description?.toLowerCase().includes(query) ||
           merger.industry.toLowerCase().includes(query)
         );
@@ -319,7 +320,7 @@ function DashboardContent() {
   };
 
   // Simulate random merger updates
-  const simulateRandomUpdates = () => {
+  const simulateRandomUpdates = useCallback(() => {
     // Get followed mergers and industries
     const followedMergerIds = displayMergers.filter(m => isMergerFollowed(m.id)).map(m => m.id);
     const followedIndustryNames = industries.filter(i => isIndustryFollowed(i));
@@ -363,11 +364,10 @@ function DashboardContent() {
     
     // Switch to notifications tab
     setActiveTab("notifications");
-  };
+  }, [displayMergers, isMergerFollowed, isIndustryFollowed, industries, simulateStatusChange, simulateNOCCIssuance, setActiveTab]);
 
   // Sample data generation just for demonstration
   useEffect(() => {
-    // This would come from a real data source in a production app
     const interval = setInterval(() => {
       simulateRandomUpdates();
     }, 30000); // Add a random update every 30 seconds

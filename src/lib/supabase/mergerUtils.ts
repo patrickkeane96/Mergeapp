@@ -47,9 +47,9 @@ export function convertToMerger(record: MergerRecord): Merger {
     acquirer: record.acquirer,
     name: `${record.target} / ${record.acquirer}`, // Generate name from target and acquirer
     startDate: new Date(record.filing_date),
-    endDate: record.status_date && ['Cleared', 'Blocked', 'Cleared (with commitments)', 'Withdrawn'].includes(record.current_status) 
-      ? new Date(record.status_date) 
-      : null,
+    endDate: record.status_date && ['Cleared', 'Blocked', 'Cleared (with commitments)', 'Withdrawn'].includes(record.current_status)
+      ? new Date(record.status_date)
+      : undefined,
     industry: record.industry,
     description: record.description || '',
     outcome: outcomeMap[record.current_status] || 'under_review',

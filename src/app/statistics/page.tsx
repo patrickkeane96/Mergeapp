@@ -7,6 +7,7 @@ import { ChartDataItem, Merger, MergerOutcome } from "@/types/merger";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
 
 // Generate placeholder data for demonstration
 const generatePlaceholderData = (): Merger[] => {
@@ -72,10 +73,12 @@ const generatePlaceholderData = (): Merger[] => {
     const isFollowed = Math.random() > 0.8;
     
     mergers.push({
-      id: `merger-${i}`,
+      id: uuidv4(),
       name: `Merger Case ${i + 1}`,
+      target: `Target Company ${i + 1}`,
+      acquirer: `Acquirer Company ${i + 1}`,
       startDate,
-      endDate,
+      endDate: endDate || undefined,
       industry: industries[Math.floor(Math.random() * industries.length)] || "Other",
       description: descriptions[Math.floor(Math.random() * descriptions.length)],
       outcome,

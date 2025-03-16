@@ -66,8 +66,10 @@ export const generatePlaceholderData = (): Merger[] => {
     mergers.push({
       id: `merger-${i}`,
       name: `Merger Case ${i + 1}`,
+      target: `Target Company ${i + 1}`,
+      acquirer: `Acquirer Company ${i + 1}`,
       startDate,
-      endDate,
+      endDate: endDate || undefined,
       industry: industries[Math.floor(Math.random() * industries.length)] || "Other",
       description: descriptions[Math.floor(Math.random() * descriptions.length)],
       outcome,
