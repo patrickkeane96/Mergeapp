@@ -1,98 +1,192 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MergerChart } from "@/components/merger-chart";
 import { ChartDataItem, Merger, MergerOutcome } from "@/types/merger";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
-import { v4 as uuidv4 } from "uuid";
+import { ArrowLeft, BarChart4, Clock, TrendingUp, PieChart, Activity, Filter, FilterX, X } from "lucide-react";
+import { differenceInBusinessDays } from "date-fns";
+import { StatsCard } from "@/components/stats-card";
+import { IndustryPieChart } from "@/components/industry-pie-chart";
+import { CombinedReviewTime } from "@/components/combined-review-time";
+import { OutcomeDistribution } from "@/components/outcome-distribution";
+import { ReviewTimeTrend } from "@/components/review-time-trend";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { useMergers } from "@/lib/hooks/useMergers";
 
-// Generate placeholder data for demonstration
-const generatePlaceholderData = (): Merger[] => {
-  const industries = [
-    "Technology",
-    "Healthcare",
-    "Energy",
-    "Financial Services",
-    "Retail",
-    "Media",
-    "Telecommunications",
-    "Manufacturing",
-    "Consumer Goods",
-    "Transportation"
-  ];
+// Component for the Phase Proportion Bar
+export function PhaseProportionBar({ phaseData }: { 
+  phaseData: {
+    phase1: number;
+    phase2: number;
+    total: number;
+    phase1Percentage: number;
+    phase2Percentage: number;
+  }
+}) {
+  const hasData = phaseData.total > 0;
   
-  const descriptions = [
-    "Horizontal merger between two major competitors in the market.",
-    "Vertical integration of supply chain components.",
-    "Conglomerate merger expanding into adjacent markets.",
-    "Acquisition of a startup with innovative technology.",
-    "Merger of equals to achieve market consolidation.",
-    "Strategic acquisition to enter new geographic markets.",
-    "Merger to achieve economies of scale and cost synergies.",
-    "Acquisition to diversify product portfolio.",
-    "Merger to strengthen market position against emerging competitors.",
-    "Acquisition of distressed assets at favorable valuation."
-  ];
-  
-  const outcomes: MergerOutcome[] = ['under_review', 'cleared', 'blocked', 'cleared_with_commitments'];
-  
-  const mergers: Merger[] = [];
-  const currentDate = new Date();
-  
-  // Generate 50 random mergers over the past 2 years
-  for (let i = 0; i < 50; i++) {
-    const startMonthsAgo = Math.floor(Math.random() * 24); // Random start date within past 24 months
-    const startDate = new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth() - startMonthsAgo,
-      Math.floor(Math.random() * 28) + 1
+  return (
+    <Card className="h-full">
+      <CardContent className="p-4">
+        <h3 className="text-base font-medium mb-4">Phase Distribution</h3>
+        
+        {hasData ? (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium">Phase 1</span>
+              <span className="text-sm font-medium">Phase 2</span>
+            </div>
+            
+            <div className="relative h-12 rounded-lg overflow-hidden border flex">
+              <div 
+                className="bg-[#1B3B6F] flex items-center justify-center text-white"
+                style={{ width: `${phaseData.phase1Percentage}%` }}
+              >
+                <span className="text-sm font-medium">
+                  {phaseData.phase1Percentage}%
+                </span>
+              </div>
+              <div 
+                className="bg-[#90CAF9] flex items-center justify-center text-blue-900"
+                style={{ width: `${phaseData.phase2Percentage}%` }}
+              >
+                <span className="text-sm font-medium">
+                  {phaseData.phase2Percentage}%
+                </span>
+              </div>
+            </div>
+            
+            <div className="flex justify-between mt-2 text-sm text-muted-foreground">
+              <div>
+                <span className="font-medium">{phaseData.phase1}</span> cases
+              </div>
+              <div>
+                <span className="font-medium">{phaseData.phase2}</span> cases
+              </div>
+            </div>
+            
+            <div className="mt-4 pt-3 border-t">
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium">{phaseData.phase2Percentage}%</span> of cases require in-depth Phase 2 review
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-center h-[200px] text-muted-foreground">
+            No completed reviews to analyze
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Component for Review Time by Industry
+export function ReviewTimeByIndustry({ allMergers }: { allMergers: Merger[] }) {
+  // Calculate average review time by industry
+  const industryData = useMemo(() => {
+    const industryReviewTimes: Record<string, { totalDays: number, count: number }> = {};
+    
+    // Only include completed mergers with end dates
+    const completedMergers = allMergers.filter(merger => 
+      merger.outcome !== 'under_review' && merger.endDate
     );
     
-    const durationMonths = Math.floor(Math.random() * 6) + 1; // 1-6 months duration
-    const endDate = i % 10 === 0 ? null : new Date(startDate);
-    if (endDate) endDate.setMonth(endDate.getMonth() + durationMonths);
-    
-    // Determine outcome based on date
-    let outcome: MergerOutcome = 'under_review';
-    if (endDate) {
-      // Distribution: 60% cleared, 15% blocked, 25% cleared with commitments
-      const rand = Math.random();
-      if (rand < 0.6) outcome = 'cleared';
-      else if (rand < 0.75) outcome = 'blocked';
-      else outcome = 'cleared_with_commitments';
-    }
-    
-    // For ongoing mergers, always 'under_review'
-    if (!endDate) outcome = 'under_review';
-    
-    // Add some future notification features
-    const hasNotifications = Math.random() > 0.7;
-    const isFollowed = Math.random() > 0.8;
-    
-    mergers.push({
-      id: uuidv4(),
-      name: `Merger Case ${i + 1}`,
-      target: `Target Company ${i + 1}`,
-      acquirer: `Acquirer Company ${i + 1}`,
-      startDate,
-      endDate: endDate || undefined,
-      industry: industries[Math.floor(Math.random() * industries.length)] || "Other",
-      description: descriptions[Math.floor(Math.random() * descriptions.length)],
-      outcome,
-      hasNotifications,
-      isFollowed
+    // Group by industry
+    completedMergers.forEach(merger => {
+      if (!merger.endDate) return;
+      
+      // Calculate business days
+      const days = differenceInBusinessDays(merger.endDate, merger.startDate);
+      
+      if (!industryReviewTimes[merger.industry]) {
+        industryReviewTimes[merger.industry] = { totalDays: 0, count: 0 };
+      }
+      
+      industryReviewTimes[merger.industry].totalDays += days;
+      industryReviewTimes[merger.industry].count++;
     });
-  }
+    
+    // Calculate average for each industry and sort by average time (descending)
+    return Object.entries(industryReviewTimes)
+      .map(([industry, data]) => ({
+        industry,
+        avgDays: Math.round(data.totalDays / data.count),
+        count: data.count
+      }))
+      .sort((a, b) => b.avgDays - a.avgDays)
+  }, [allMergers]);
   
-  return mergers;
-};
+  const hasData = industryData.length > 0;
+
+  return (
+    <Card className="h-full">
+      <CardContent className="p-4">
+        <h3 className="text-base font-medium mb-4">Review Time by Industry</h3>
+        
+        {hasData ? (
+          <div className="space-y-3 min-h-[168px]">
+            {industryData.map(item => (
+              <div key={item.industry} className="relative">
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="font-medium truncate max-w-[60%]" title={item.industry}>
+                    {item.industry}
+                  </span>
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    {item.avgDays} days ({item.count} reviews)
+                  </span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-primary rounded-full" 
+                    style={{ 
+                      width: `${Math.min(100, (item.avgDays / Math.max(...industryData.map(d => d.avgDays))) * 100)}%` 
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-[168px] text-muted-foreground">
+            No completed reviews to analyze
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function StatisticsPage() {
-  const allMergers = useMemo(() => generatePlaceholderData(), []);
-  const [selectedMonth, setSelectedMonth] = React.useState<string | null>(null);
+  const { mergers: allMergers, loading } = useMergers();
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
+
+  // Get unique industries
+  const industries = useMemo(() => {
+    const uniqueIndustries = new Set<string>();
+    allMergers.forEach(merger => {
+      if (merger.industry) {
+        uniqueIndustries.add(merger.industry);
+      }
+    });
+    return Array.from(uniqueIndustries).sort();
+  }, [allMergers]);
+
+  // Apply industry filter
+  const filteredMergers = useMemo(() => {
+    if (!selectedIndustry) return allMergers;
+    return allMergers.filter(merger => merger.industry === selectedIndustry);
+  }, [allMergers, selectedIndustry]);
   
   // Create chart data by grouping mergers by month and outcome
   const allChartData = useMemo(() => {
@@ -106,7 +200,7 @@ export default function StatisticsPage() {
     }> = {};
     
     // Count mergers by month and outcome
-    allMergers.forEach(merger => {
+    filteredMergers.forEach(merger => {
       const month = `${merger.startDate.getFullYear()}-${String(merger.startDate.getMonth() + 1).padStart(2, '0')}`;
       
       if (!monthData[month]) {
@@ -121,6 +215,40 @@ export default function StatisticsPage() {
       
       monthData[month][merger.outcome]++;
       monthData[month].total++;
+    });
+    
+    // Ensure we have data starting from August 2024
+    const startMonth = '2024-08';
+    const currentDate = new Date();
+    const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    // Create a list of all months from August 2024 to current month
+    const allMonths = [];
+    let year = 2024;
+    let month = 8; // August
+    
+    while (`${year}-${String(month).padStart(2, '0')}` <= currentMonth) {
+      const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+      allMonths.push(monthKey);
+      
+      month++;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+    }
+    
+    // Fill in data for all months
+    allMonths.forEach(month => {
+      if (!monthData[month]) {
+        monthData[month] = {
+          under_review: 0,
+          cleared: 0,
+          blocked: 0,
+          cleared_with_commitments: 0,
+          total: 0
+        };
+      }
     });
     
     // Sort months chronologically
@@ -144,7 +272,54 @@ export default function StatisticsPage() {
     });
     
     return data;
-  }, [allMergers]);
+  }, [filteredMergers]);
+  
+  // Calculate total reviews
+  const totalReviews = filteredMergers.length;
+  
+  // Calculate active reviews
+  const activeReviews = filteredMergers.filter(m => m.outcome === 'under_review').length;
+  
+  // Calculate clearance rate
+  const clearanceRate = useMemo(() => {
+    const completedMergers = filteredMergers.filter(m => m.outcome !== 'under_review');
+    if (completedMergers.length === 0) return 0;
+    
+    const clearedMergers = completedMergers.filter(
+      m => m.outcome === 'cleared' || m.outcome === 'cleared_with_commitments'
+    ).length;
+    
+    return Math.round((clearedMergers / completedMergers.length) * 100);
+  }, [filteredMergers]);
+  
+  // Calculate phase 2 reviews
+  const phase2Reviews = filteredMergers.filter(m => m.hasPhase2).length;
+  
+  // Calculate phase proportion data
+  const phaseData = useMemo(() => {
+    const completedMergers = filteredMergers.filter(merger => 
+      merger.outcome !== 'under_review' && merger.endDate
+    );
+    
+    if (completedMergers.length === 0) return { 
+      phase1: 0, 
+      phase2: 0, 
+      total: 0,
+      phase1Percentage: 0,
+      phase2Percentage: 0 
+    };
+    
+    const phase2Count = completedMergers.filter(merger => merger.hasPhase2).length;
+    const phase1Count = completedMergers.length - phase2Count;
+    
+    return {
+      phase1: phase1Count,
+      phase2: phase2Count,
+      total: completedMergers.length,
+      phase1Percentage: Math.round((phase1Count / completedMergers.length) * 100),
+      phase2Percentage: Math.round((phase2Count / completedMergers.length) * 100)
+    };
+  }, [filteredMergers]);
   
   // Handle chart bar click for analytics
   const handleBarClick = (data: any) => {
@@ -155,37 +330,241 @@ export default function StatisticsPage() {
     }
   };
 
+  // Handle industry slice click in pie chart
+  const handleIndustryClick = (industry: string) => {
+    setSelectedIndustry(industry);
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSelectedIndustry(null);
+    setSelectedMonth(null);
+  };
+
+  // Filter display section
+  const FilterDisplay = () => {
+    if (!selectedIndustry) return null;
+    
+    return (
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filtered by:</span>
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-white text-sm font-medium"
+          >
+            {selectedIndustry}
+            <span className="flex items-center justify-center bg-white text-primary rounded-full w-4 h-4">
+              <X className="h-3 w-3" />
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6 flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-lg">Loading statistics...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center gap-2">
-        <Link href="/dashboard">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <h1 className="text-3xl font-bold">Merger Statistics</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-bold">Merger Statistics</h1>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {selectedIndustry ? (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-1.5 bg-primary text-white hover:bg-primary/90 hover:text-white"
+              onClick={clearFilters}
+            >
+              {selectedIndustry}
+              <span className="flex items-center justify-center bg-white text-primary rounded-full w-4 h-4">
+                <X className="h-3 w-3" />
+              </span>
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <Filter className="h-4 w-4" />
+                  Filter by Industry
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">
+                {industries.map(industry => (
+                  <DropdownMenuItem 
+                    key={industry}
+                    onClick={() => setSelectedIndustry(industry)}
+                    className="cursor-pointer"
+                  >
+                    {industry}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
       
-      <Card>
-        <CardHeader>
-          <CardTitle>Merger Activity Overview</CardTitle>
+      {/* Top level metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatsCard 
+          title="Total Reviews" 
+          value={totalReviews}
+          description="All merger reviews in the system"
+          icon={<BarChart4 className="h-5 w-5" />}
+          trend={totalReviews > 0 ? { value: 12, positive: true } : undefined}
+        />
+        
+        <StatsCard 
+          title="Active Reviews" 
+          value={activeReviews}
+          description="Currently under assessment"
+          icon={<Activity className="h-5 w-5" />}
+        />
+        
+        <StatsCard 
+          title="Clearance Rate" 
+          value={`${clearanceRate}%`}
+          description="Percentage of cleared mergers"
+          icon={<TrendingUp className="h-5 w-5" />}
+        />
+        
+        <StatsCard 
+          title="Phase 2 Reviews" 
+          value={phase2Reviews}
+          description="In-depth assessments"
+          icon={<Clock className="h-5 w-5" />}
+          trend={phase2Reviews > 0 ? { value: 5, positive: false } : undefined}
+        />
+      </div>
+      
+      {/* Charts - First row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="overflow-hidden">
+          <CardHeader className="bg-primary/5">
+            <CardTitle className="flex items-center gap-2">
+              <BarChart4 className="h-5 w-5 text-primary" />
+              Merger Reviews by Month
+            </CardTitle>
+            <CardDescription>
+              Visual breakdown of merger filings and outcomes by month
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-8 pb-6">
+            <MergerChart 
+              data={allChartData} 
+              onBarClick={handleBarClick}
+              selectedMonth={selectedMonth}
+            />
+          </CardContent>
+        </Card>
+        
+        <Card className="overflow-hidden">
+          <CardHeader className="bg-primary/5">
+            <CardTitle className="flex items-center gap-2">
+              <PieChart className="h-5 w-5 text-primary" /> 
+              Reviews by Industry
+            </CardTitle>
+            <CardDescription>
+              Distribution of mergers across industry sectors
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4 pb-2">
+            <IndustryPieChart 
+              mergers={allMergers} 
+              onIndustryClick={handleIndustryClick}
+            />
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Review Time Analysis */}
+      <Card className="overflow-hidden">
+        <CardHeader className="bg-primary/5">
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            Review Time Analysis
+          </CardTitle>
           <CardDescription>
-            Visual breakdown of merger filings and outcomes by month
+            Average business days and monthly trends
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <MergerChart 
-            chartData={allChartData} 
-            onBarClick={handleBarClick}
-            selectedMonth={selectedMonth}
-          />
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-primary/5">
+              {(() => {
+                const completedMergers = filteredMergers.filter(merger => 
+                  merger.outcome !== 'under_review' && merger.endDate
+                );
+                
+                if (completedMergers.length === 0) {
+                  return (
+                    <>
+                      <div className="text-sm text-muted-foreground mb-2">Average Review Time</div>
+                      <div className="text-5xl font-bold text-primary">-</div>
+                      <div className="text-sm text-muted-foreground mt-2">No completed reviews</div>
+                    </>
+                  );
+                }
+                
+                const totalDays = completedMergers.reduce((sum, merger) => {
+                  if (!merger.endDate) return sum;
+                  return sum + differenceInBusinessDays(merger.endDate, merger.startDate);
+                }, 0);
+                
+                const average = Math.round(totalDays / completedMergers.length);
+                
+                return (
+                  <>
+                    <div className="text-sm text-muted-foreground mb-2">Average Review Time</div>
+                    <div className="text-5xl font-bold text-primary">{average}</div>
+                    <div className="text-sm text-muted-foreground mt-2">business days</div>
+                    <div className="text-xs text-muted-foreground mt-4">
+                      Based on {completedMergers.length} completed reviews
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+            
+            <div>
+              <PhaseProportionBar phaseData={phaseData} />
+            </div>
+            
+            <div className="md:row-span-2">
+              <ReviewTimeByIndustry allMergers={allMergers} />
+            </div>
+            
+            <div className="md:col-span-2">
+              <ReviewTimeTrend mergers={filteredMergers} />
+            </div>
+          </div>
         </CardContent>
       </Card>
       
+      {/* Outcome distribution */}
+      <OutcomeDistribution mergers={filteredMergers} />
+      
       {selectedMonth && (
         <Card>
-          <CardHeader>
-            <CardTitle>Selected Month Details</CardTitle>
+          <CardHeader className="bg-primary/5">
+            <CardTitle className="flex items-center gap-2">
+              <BarChart4 className="h-5 w-5 text-primary" />
+              Selected Month Details
+            </CardTitle>
             <CardDescription>
               Detailed breakdown for {allChartData.find(item => item.month === selectedMonth)?.name}
             </CardDescription>
@@ -232,6 +611,6 @@ function getColorForOutcome(outcome: MergerOutcome): string {
     case 'blocked':
       return 'bg-red-100 text-red-800';
     case 'cleared_with_commitments':
-      return 'bg-emerald-100 text-emerald-800';
+      return 'bg-blue-100 text-blue-800';
   }
 } 

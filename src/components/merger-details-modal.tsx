@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { format, differenceInBusinessDays } from "date-fns";
-import { X, Calendar, Tag, FileText, Bell, BellOff } from 'lucide-react';
+import { X, Calendar, Tag, FileText, StarIcon, CalendarIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,15 +12,17 @@ import {
   CustomDialogContent,
   CustomDialogHeader,
   CustomDialogTitle,
+  CustomDialogClose,
 } from "@/components/ui/custom-dialog";
 import { Merger, TimelineEvent } from '@/types/merger';
 import { useNotifications } from '@/lib/contexts/NotificationsContext';
 import { cn } from '@/lib/utils';
 import { fetchMergerStatusHistory, MergerStatusHistoryEntry } from '@/lib/supabase/mergerUtils';
 import { generateTimelineEvents } from '@/lib/utils/merger-utils';
-import { UpdateMergerStatus } from './update-merger-status';
 import { Loader2 } from 'lucide-react';
 import { Timeline } from '@/components/ui/timeline';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { FileIcon, Download } from 'lucide-react';
 
 // Outcome configuration (for consistent colors and labels)
 const outcomeConfig = {
@@ -54,6 +56,28 @@ const outcomeConfig = {
   }
 };
 
+// Sample documents for display
+const documents = [
+  { id: '1', title: 'Initial Filing Documentation', date: new Date(2023, 5, 15) },
+  { id: '2', title: 'Market Analysis Report', date: new Date(2023, 6, 10) },
+  { id: '3', title: 'Competitive Assessment', date: new Date(2023, 7, 2) },
+  { id: '4', title: 'Remedies Proposal', date: new Date(2023, 8, 5) },
+];
+
+// Sample key dates
+const keyDates = [
+  { id: '1', title: 'Phase 1 Deadline', date: new Date(2023, 8, 15) },
+  { id: '2', title: 'Committee Review', date: new Date(2023, 9, 1) },
+  { id: '3', title: 'Final Decision Due', date: new Date(2023, 10, 15) },
+];
+
+// Sample key people
+const keyPeople = [
+  { id: '1', name: 'Sarah Johnson', role: 'Lead Case Officer', avatar: '' },
+  { id: '2', name: 'Michael Chen', role: 'Economic Analyst', avatar: '' },
+  { id: '3', name: 'Jessica Williams', role: 'Legal Counsel', avatar: '' },
+];
+
 interface MergerDetailsModalProps {
   merger: Merger | null;
   isOpen: boolean;
@@ -65,27 +89,18 @@ export function MergerDetailsModal({ merger, isOpen, onClose, timelineEvents: in
   const { followMerger, unfollowMerger, isMergerFollowed, addNotification } = useNotifications();
   const [isClosing, setIsClosing] = useState(false);
   const [showContent, setShowContent] = useState(false);
-  const [statusHistory, setStatusHistory] = useState<MergerStatusHistoryEntry[]>([]);
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>(initialTimelineEvents || []);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
-  // Fetch status history when merger changes
+  // Fetch timeline events when merger changes
   useEffect(() => {
     if (merger && isOpen) {
       setIsLoadingHistory(true);
-      fetchMergerStatusHistory(merger.id)
-        .then(history => {
-          setStatusHistory(history);
-          // Generate new timeline events based on status history
-          const events = generateTimelineEvents(merger, history);
-          setTimelineEvents(events);
-        })
-        .catch(error => {
-          console.error('Error fetching merger status history:', error);
-        })
-        .finally(() => {
-          setIsLoadingHistory(false);
-        });
+      
+      // Generate timeline events directly without fetching status history
+      const events = generateTimelineEvents(merger);
+      setTimelineEvents(events);
+      setIsLoadingHistory(false);
     }
   }, [merger, isOpen]);
   
@@ -144,33 +159,50 @@ export function MergerDetailsModal({ merger, isOpen, onClose, timelineEvents: in
     }
   };
 
-  const handleStatusUpdated = async () => {
-    if (merger) {
-      // Reload status history
-      try {
-        const history = await fetchMergerStatusHistory(merger.id);
-        setStatusHistory(history);
-        
-        // Generate timeline events based on status history
-        const events = generateTimelineEvents(merger, history);
-        setTimelineEvents(events);
-      } catch (error) {
-        console.error('Error refreshing merger status history:', error);
-      }
-    }
-  };
-
   return (
     <CustomDialog open={isOpen || isClosing} onOpenChange={(open) => !open && handleClose()}>
       <CustomDialogContent 
-        className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden p-0"
+        className="max-w-5xl max-h-[90vh] flex flex-col overflow-hidden p-0"
         showContent={showContent}
         onCloseClick={handleClose}
         onEscapeKeyDown={(e) => e.preventDefault()}
         forceMount
       >
         <CustomDialogHeader className="flex-shrink-0 p-6 pb-3">
-          <CustomDialogTitle className="text-xl">Merger Details</CustomDialogTitle>
+          <div className="flex justify-between items-center w-full">
+            <CustomDialogTitle className="text-xl">Merger Details</CustomDialogTitle>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleToggleFollow}
+                className={cn(
+                  "min-w-24",
+                  isFollowed
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : ""
+                )}
+              >
+                {isFollowed ? (
+                  <>
+                    <StarIcon className="mr-2 h-4 w-4 fill-primary" />
+                    Following
+                  </>
+                ) : (
+                  <>
+                    <StarIcon className="mr-2 h-4 w-4" />
+                    Follow
+                  </>
+                )}
+              </Button>
+              
+              <X 
+                className="h-4 w-4 cursor-pointer opacity-70 hover:opacity-100" 
+                onClick={handleClose}
+              />
+            </div>
+          </div>
         </CustomDialogHeader>
         
         <div className="flex-1 overflow-y-auto px-6 pb-6 pt-0">
@@ -178,157 +210,114 @@ export function MergerDetailsModal({ merger, isOpen, onClose, timelineEvents: in
             {/* Merger Header */}
             <div>
               <h3 className="text-2xl font-bold">{merger.target} / {merger.acquirer}</h3>
-              <div className="flex items-center justify-between gap-2 mt-2">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    className={cn(
-                      "px-2 py-1",
-                      outcomeConfig[merger.outcome].bgColor,
-                      outcomeConfig[merger.outcome].textColor
-                    )}
-                  >
-                    {outcomeConfig[merger.outcome].label}
-                  </Badge>
-                  {merger.endDate && (
-                    <span className="text-muted-foreground">
-                      Completed in {differenceInBusinessDays(
-                        merger.endDate,
-                        merger.startDate
-                      )} business days
-                    </span>
+              <div className="flex items-center gap-2 mt-2">
+                <Badge
+                  className={cn(
+                    "px-2 py-1",
+                    outcomeConfig[merger.outcome].bgColor,
+                    outcomeConfig[merger.outcome].textColor
                   )}
-                </div>
-                {/* Status update option removed for users */}
+                >
+                  {outcomeConfig[merger.outcome].label}
+                </Badge>
+                {merger.endDate && (
+                  <span className="text-muted-foreground">
+                    Completed in {differenceInBusinessDays(
+                      merger.endDate,
+                      merger.startDate
+                    )} business days
+                  </span>
+                )}
               </div>
             </div>
             
-            {/* Merger Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
-                  <div>
-                    <p className="font-medium">Filing Date</p>
-                    <p className="text-muted-foreground">
-                      {format(merger.startDate, "MMMM d, yyyy")}
-                    </p>
-                  </div>
-                </div>
-                
-                {merger.endDate && (
-                  <div className="flex items-start gap-3">
-                    <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="font-medium">Decision Date</p>
-                      <p className="text-muted-foreground">
-                        {format(merger.endDate, "MMMM d, yyyy")}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex items-start gap-3">
-                  <Tag className="h-5 w-5 text-muted-foreground mt-0.5" />
-                  <div>
-                    <p className="font-medium">Industry</p>
-                    <p className="text-muted-foreground">{merger.industry}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3">
-                  <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
-                  <div>
-                    <p className="font-medium">Description</p>
-                    <p className="text-muted-foreground">{merger.description}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Combined Timeline and Status History */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Merger Timeline</CardTitle>
-                <CardDescription>
-                  {isLoadingHistory 
-                    ? "Loading timeline data..." 
-                    : statusHistory.length > 0 
-                      ? "Timeline based on actual status changes" 
-                      : "Key events in the merger review process"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoadingHistory ? (
-                  <div className="flex justify-center py-4">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  </div>
-                ) : timelineEvents.length > 0 ? (
-                  <div className="space-y-6">
-                    {/* Status History Summary */}
-                    {statusHistory.length > 0 && (
-                      <div className="mb-6 p-4 bg-muted/30 rounded-lg">
-                        <h4 className="font-medium mb-2">Status History</h4>
-                        <div className="space-y-2">
-                          {statusHistory.map((entry, index) => (
-                            <div key={index} className="flex justify-between items-center text-sm">
-                              <div className="flex items-center gap-2">
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn(
-                                    "px-2 py-0.5",
-                                    entry.status.includes('clear') ? "bg-green-50 text-green-700 border-green-200" :
-                                    entry.status.includes('block') ? "bg-red-50 text-red-700 border-red-200" :
-                                    "bg-blue-50 text-blue-700 border-blue-200"
-                                  )}
-                                >
-                                  {entry.status.replace(/_/g, ' ')}
-                                </Badge>
-                                {entry.has_phase_2 && (
-                                  <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                                    Phase 2
-                                  </Badge>
-                                )}
-                              </div>
-                              <span className="text-muted-foreground">
-                                {new Date(entry.created_at).toLocaleDateString()}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+            {/* Main content */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Left column - details */}
+              <div className="md:col-span-2 space-y-6">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle>Merger Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Acquirer</h4>
+                        <p>{merger.acquirer}</p>
                       </div>
-                    )}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Target</h4>
+                        <p>{merger.target}</p>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Industry</h4>
+                        <p>{merger.industry}</p>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Filing Date</h4>
+                        <p>{format(merger.startDate, "MMMM d, yyyy")}</p>
+                      </div>
+                    </div>
                     
-                    {/* Timeline */}
-                    <Timeline events={timelineEvents} />
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground text-sm">No timeline events available</p>
-                )}
-              </CardContent>
-            </Card>
+                    <div>
+                      <h4 className="text-sm font-semibold text-muted-foreground mb-1">Description</h4>
+                      <p className="text-sm">{merger.description}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                {/* Timeline */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle>Timeline</CardTitle>
+                    <CardDescription>Key events and milestones</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingHistory ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : (
+                      <Timeline events={timelineEvents} />
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+              
+              {/* Right column - documents */}
+              <div>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle>Documents</CardTitle>
+                    <CardDescription>Related files and reports</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {documents.map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                        >
+                          <div className="rounded-md bg-primary/10 p-2">
+                            <FileIcon className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{doc.title}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(doc.date, "MMM d, yyyy")}
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           </div>
-        </div>
-        
-        <div className="px-6 py-4 border-t flex justify-end">
-          <Button 
-            variant={isFollowed ? "outline" : "default"}
-            onClick={handleToggleFollow}
-          >
-            {isFollowed ? (
-              <>
-                <BellOff className="h-4 w-4 mr-2" />
-                Unfollow Merger
-              </>
-            ) : (
-              <>
-                <Bell className="h-4 w-4 mr-2" />
-                Follow Merger
-              </>
-            )}
-          </Button>
         </div>
       </CustomDialogContent>
     </CustomDialog>

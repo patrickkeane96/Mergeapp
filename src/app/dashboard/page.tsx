@@ -107,7 +107,7 @@ function DashboardContent() {
   const [selectedMerger, setSelectedMerger] = useState<Merger | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [currentStartIndex, setCurrentStartIndex] = useState(0);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalClosing, setIsModalClosing] = useState(false);
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
@@ -425,11 +425,6 @@ function DashboardContent() {
             <Bell className="h-4 w-4 mr-2" />
             Simulate News
           </Button>
-          <Link href="/statistics">
-            <Button variant="outline">
-              View Statistics
-            </Button>
-          </Link>
         </div>
       </div>
       
@@ -452,28 +447,6 @@ function DashboardContent() {
       {/* Active Mergers Table */}
       <div className="mt-6">
         <Card className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Active Reviews</h2>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-1">
-                  {itemsPerPage} per page
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setItemsPerPage(25)}>
-                  25 per page
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setItemsPerPage(50)}>
-                  50 per page
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setItemsPerPage(100)}>
-                  100 per page
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="flex flex-col items-center space-y-4">
@@ -490,12 +463,13 @@ function DashboardContent() {
             </div>
           ) : (
             <EnhancedMergerTable
-              mergers={filteredMergers}
-              highlightedMergerId={selectedMerger?.id || null}
+              mergers={supabaseMergers}
+              highlightedMergerId={highlightedMergerId || null}
               onRowClick={handleRowClick}
               currentStartIndex={currentStartIndex}
               itemsPerPage={itemsPerPage}
               setCurrentStartIndex={setCurrentStartIndex}
+              openMergerDetails={handleRowClick}
             />
           )}
         </Card>

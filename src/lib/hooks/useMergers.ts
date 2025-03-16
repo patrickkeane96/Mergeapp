@@ -12,7 +12,8 @@ export function useMergers() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/mergers');
+      // Specify a large limit to get all mergers (Supabase default limit is 1000)
+      const response = await fetch('/api/mergers?limit=10000');
       
       if (!response.ok) {
         throw new Error(`Error fetching mergers: ${response.status}`);
@@ -27,6 +28,7 @@ export function useMergers() {
         endDate: merger.endDate ? new Date(merger.endDate) : null
       }));
       
+      console.log(`Fetched ${processedData.length} mergers from Supabase`);
       setMergers(processedData);
     } catch (err) {
       console.error('Error fetching mergers:', err);

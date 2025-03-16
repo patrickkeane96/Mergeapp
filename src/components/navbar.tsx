@@ -21,6 +21,11 @@ const routes = [
     label: 'Dashboard',
     icon: PieChart,
   },
+  {
+    href: '/statistics',
+    label: 'Statistics',
+    icon: BarChart2,
+  },
 ];
 
 export function Navbar() {

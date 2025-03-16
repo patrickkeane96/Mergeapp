@@ -97,11 +97,12 @@ export function convertToMergerRecord(merger: Partial<Merger>): Partial<MergerRe
 }
 
 // Fetch all mergers
-export async function fetchMergers(): Promise<Merger[]> {
+export async function fetchMergers(limit = 10000): Promise<Merger[]> {
   const { data, error } = await supabase
     .from('mergers')
     .select('*')
-    .order('filing_date', { ascending: false });
+    .order('filing_date', { ascending: false })
+    .limit(limit);
 
   if (error) {
     console.error('Error fetching mergers:', error);

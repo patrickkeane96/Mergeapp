@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { format, differenceInBusinessDays } from "date-fns";
-import { Bell, ChevronDown, Check, Star, X, Filter, ArrowUpDown } from 'lucide-react';
+import { Bell, ChevronDown, Check, Star, X, Filter, ArrowUpDown, SortAsc, SortDesc } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Merger } from '@/types/merger';
+import { Merger, MergerOutcome, TimelineEvent } from "@/types/merger";
 import { useNotifications } from '@/lib/contexts/NotificationsContext';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -86,6 +86,9 @@ interface EnhancedMergerTableProps {
   currentStartIndex: number;
   itemsPerPage: number;
   setCurrentStartIndex: (index: number) => void;
+  openMergerDetails: (merger: Merger) => void;
+  title?: string;
+  emptyStateMessage?: string;
 }
 
 export function EnhancedMergerTable({ 
@@ -94,10 +97,16 @@ export function EnhancedMergerTable({
   onRowClick,
   currentStartIndex,
   itemsPerPage,
-  setCurrentStartIndex
+  setCurrentStartIndex,
+  openMergerDetails,
+  title = "Reviews",
+  emptyStateMessage = "No mergers found"
 }: EnhancedMergerTableProps) {
   const { isIndustryFollowed, followIndustry, unfollowIndustry, showOnlyFollowed } = useNotifications();
   const router = useRouter();
+  
+  // Log the number of mergers received
+  console.log(`EnhancedMergerTable received ${mergers.length} mergers`);
   
   // State for filters and sorting
   const [nameFilter, setNameFilter] = useState('');
@@ -108,6 +117,8 @@ export function EnhancedMergerTable({
   const [durationFilter, setDurationFilter] = useState<{min: string, max: string}>({min: '', max: ''});
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [sortState, setSortState] = useState<SortState>({ column: quickFilter === 'recently_active' ? 'recent_activity' : 'status', direction: 'none' });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(itemsPerPage);
   
   // Helper function to calculate duration in days
   const calculateDurationDays = (merger: Merger): number => {
@@ -282,20 +293,53 @@ export function EnhancedMergerTable({
     return outcomeConfig[merger.outcome].label;
   };
 
+  // Update the getStatusColor function to use orange for Phase 2 Under Review
+  function getStatusColor(outcome: MergerOutcome, hasPhase2: boolean = false): { bg: string, text: string } {
+    if (outcome === 'under_review' && hasPhase2) {
+      return { bg: 'bg-orange-100', text: 'text-orange-800' };
+    }
+    
+    switch (outcome) {
+      case 'under_review':
+        return { bg: 'bg-yellow-100', text: 'text-yellow-800' };
+      case 'cleared':
+        return { bg: 'bg-green-100', text: 'text-green-800' };
+      case 'cleared_with_commitments':
+        return { bg: 'bg-blue-100', text: 'text-blue-800' };
+      case 'blocked':
+        return { bg: 'bg-red-100', text: 'text-red-800' };
+      default:
+        return { bg: 'bg-gray-100', text: 'text-gray-800' };
+    }
+  }
+
+  // Add a function to handle page size change and update the pagination controls
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1); // Reset to first page when changing page size
+  };
+
+  // Update ItemsPerPage based on props changes
+  useEffect(() => {
+    setPageSize(itemsPerPage);
+  }, [itemsPerPage]);
+
+  // Update the used pagination variables
+  const pageCount = Math.ceil(filteredMergers.length / pageSize);
+  const startIndex = (page - 1) * pageSize;
+  const displayedMergers = sortedMergers.slice(startIndex, startIndex + pageSize);
+
+  // Hook to update the parent's currentStartIndex for compatibility
+  useEffect(() => {
+    setCurrentStartIndex(startIndex);
+  }, [startIndex, setCurrentStartIndex]);
+
   return (
-    <div className="border rounded-md">
+    <div className="space-y-4">
       <div className="flex items-center justify-between px-4 py-3 border-b">
+        <h2 className="text-xl font-semibold">{title}</h2>
+        
         <div className="flex-1 flex items-center justify-center gap-4 text-sm text-muted-foreground">
-          <button 
-            className={cn(
-              "hover:text-foreground transition-colors",
-              quickFilter === 'recently_active' && "text-foreground font-medium"
-            )}
-            onClick={() => setQuickFilter('recently_active')}
-          >
-            Recently Active
-          </button>
-          <span className="text-muted-foreground">|</span>
           <button 
             className={cn(
               "hover:text-foreground transition-colors",
@@ -304,6 +348,16 @@ export function EnhancedMergerTable({
             onClick={() => setQuickFilter('all')}
           >
             All
+          </button>
+          <span className="text-muted-foreground">|</span>
+          <button 
+            className={cn(
+              "hover:text-foreground transition-colors",
+              quickFilter === 'recently_active' && "text-foreground font-medium"
+            )}
+            onClick={() => setQuickFilter('recently_active')}
+          >
+            Recently Active
           </button>
           <span className="text-muted-foreground">|</span>
           <button 
@@ -326,391 +380,401 @@ export function EnhancedMergerTable({
             Completed
           </button>
         </div>
+        
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="flex items-center gap-1">
+              {pageSize} per page
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handlePageSizeChange(10)}>
+              10 per page
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handlePageSizeChange(25)}>
+              25 per page
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handlePageSizeChange(50)}>
+              50 per page
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handlePageSizeChange(100)}>
+              100 per page
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-
-      {/* Active filters display */}
-      {(nameFilter || selectedIndustries.length > 0 || selectedStatuses.length > 0 || dateFilter !== 'all' || durationFilter.min || durationFilter.max) && (
-        <div className="p-3 bg-muted/40 border-b flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium">Active filters:</span>
-          
-          {nameFilter && (
-            <Badge variant="secondary" className="flex items-center gap-1">
-              Name: {nameFilter}
-              <X 
-                className="h-3 w-3 ml-1 cursor-pointer" 
-                onClick={() => setNameFilter('')}
-              />
-            </Badge>
-          )}
-          
-          {selectedIndustries.map(industry => (
-            <Badge key={industry} variant="secondary" className="flex items-center gap-1">
-              Industry: {industry}
-              <X 
-                className="h-3 w-3 ml-1 cursor-pointer" 
-                onClick={() => setSelectedIndustries(prev => prev.filter(i => i !== industry))}
-              />
-            </Badge>
-          ))}
-          
-          {selectedStatuses.map(status => (
-            <Badge key={status} variant="secondary" className="flex items-center gap-1">
-              Status: {outcomeConfig[status as keyof typeof outcomeConfig].label}
-              <X 
-                className="h-3 w-3 ml-1 cursor-pointer" 
-                onClick={() => setSelectedStatuses(prev => prev.filter(s => s !== status))}
-              />
-            </Badge>
-          ))}
-          
-          {dateFilter !== 'all' && (
-            <Badge variant="secondary" className="flex items-center gap-1">
-              Date: {dateFilter}
-              <X 
-                className="h-3 w-3 ml-1 cursor-pointer" 
-                onClick={() => setDateFilter('all')}
-              />
-            </Badge>
-          )}
-          
-          {(durationFilter.min || durationFilter.max) && (
-            <Badge variant="secondary" className="flex items-center gap-1">
-              Duration: {durationFilter.min || '0'}-{durationFilter.max || '∞'} days
-              <X 
-                className="h-3 w-3 ml-1 cursor-pointer" 
-                onClick={() => setDurationFilter({min: '', max: ''})}
-              />
-            </Badge>
-          )}
-          
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={resetFilters}
-            className="ml-auto"
-          >
-            Reset all
-          </Button>
-        </div>
-      )}
       
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('target')}>
-              Target
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'target' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-80">
-                  <div className="p-2">
-                    <Input 
-                      placeholder="Filter by target or acquirer..." 
-                      value={nameFilter}
-                      onChange={(e) => setNameFilter(e.target.value)}
-                      className="w-full"
-                    />
+      <div className="bg-white dark:bg-gray-800 rounded-md border shadow-sm overflow-hidden">
+        <div>
+          <Table className="w-full">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="relative cursor-pointer" onClick={() => handleSort('target')}>
+                  <div className="flex items-center gap-1">
+                    Target
+                    {sortState.column === 'target' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-80" sideOffset={5}>
+                        <div className="p-2">
+                          <Input 
+                            placeholder="Filter by target or acquirer..." 
+                            value={nameFilter}
+                            onChange={(e) => setNameFilter(e.target.value)}
+                            className="w-full"
+                          />
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('acquirer')}>
-              Acquirer
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'acquirer' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-80">
-                  <div className="p-2">
-                    <Input 
-                      placeholder="Filter by target or acquirer..." 
-                      value={nameFilter}
-                      onChange={(e) => setNameFilter(e.target.value)}
-                      className="w-full"
-                    />
+                </TableHead>
+                <TableHead className="relative cursor-pointer" onClick={() => handleSort('acquirer')}>
+                  <div className="flex items-center gap-1">
+                    Acquirer
+                    {sortState.column === 'acquirer' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-80" sideOffset={5}>
+                        <div className="p-2">
+                          <Input 
+                            placeholder="Filter by target or acquirer..." 
+                            value={nameFilter}
+                            onChange={(e) => setNameFilter(e.target.value)}
+                            className="w-full"
+                          />
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('industry')}>
-              Industry
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'industry' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  {industries.map(industry => (
-                    <DropdownMenuCheckboxItem
-                      key={industry}
-                      checked={selectedIndustries.includes(industry)}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedIndustries(prev => [...prev, industry]);
-                        } else {
-                          setSelectedIndustries(prev => prev.filter(i => i !== industry));
-                        }
-                      }}
-                    >
-                      {industry}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSelectedIndustries([])}>
-                    Clear All
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('filing_date')}>
-              Filing Date
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'filing_date' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => setDateFilter('all')}>
-                    <Check className={cn("mr-2 h-4 w-4", dateFilter === 'all' ? "opacity-100" : "opacity-0")} />
-                    All Time
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDateFilter('last30days')}>
-                    <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last30days' ? "opacity-100" : "opacity-0")} />
-                    Last 30 days
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDateFilter('last90days')}>
-                    <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last90days' ? "opacity-100" : "opacity-0")} />
-                    Last 90 days
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDateFilter('last6months')}>
-                    <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last6months' ? "opacity-100" : "opacity-0")} />
-                    Last 6 months
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDateFilter('lastyear')}>
-                    <Check className={cn("mr-2 h-4 w-4", dateFilter === 'lastyear' ? "opacity-100" : "opacity-0")} />
-                    Last year
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('status')}>
-              Status
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'status' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuCheckboxItem
-                    checked={selectedStatuses.includes('under_review_phase1')}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedStatuses(prev => [...prev, 'under_review_phase1']);
-                      } else {
-                        setSelectedStatuses(prev => prev.filter(s => s !== 'under_review_phase1'));
-                      }
-                    }}
-                  >
-                    Under Review (Phase 1)
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={selectedStatuses.includes('under_review_phase2')}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedStatuses(prev => [...prev, 'under_review_phase2']);
-                      } else {
-                        setSelectedStatuses(prev => prev.filter(s => s !== 'under_review_phase2'));
-                      }
-                    }}
-                  >
-                    Under Review (Phase 2)
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator />
-                  {Object.entries(outcomeConfig)
-                    .filter(([key]) => key !== 'under_review')
-                    .map(([key, config]) => (
-                      <DropdownMenuCheckboxItem
-                        key={key}
-                        checked={selectedStatuses.includes(key)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedStatuses(prev => [...prev, key]);
-                          } else {
-                            setSelectedStatuses(prev => prev.filter(s => s !== key));
-                          }
-                        }}
-                      >
-                        {config.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSelectedStatuses([])}>
-                    Clear All
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="relative cursor-pointer" onClick={() => handleSort('duration')}>
-              Duration
-              <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                <ArrowUpDown className={cn(
-                  "h-3.5 w-3.5",
-                  sortState.column === 'duration' && sortState.direction !== 'none' && "text-primary"
-                )} />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 absolute right-2 top-1/2 -translate-y-1/2">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <div className="p-2 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">Min:</span>
-                      <Input 
-                        type="number"
-                        placeholder="Min days" 
-                        value={durationFilter.min}
-                        onChange={(e) => setDurationFilter(prev => ({...prev, min: e.target.value}))}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">Max:</span>
-                      <Input 
-                        type="number"
-                        placeholder="Max days" 
-                        value={durationFilter.max}
-                        onChange={(e) => setDurationFilter(prev => ({...prev, max: e.target.value}))}
-                        className="w-full"
-                      />
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="w-full"
-                      onClick={() => setDurationFilter({min: '', max: ''})}
-                    >
-                      Clear
-                    </Button>
+                </TableHead>
+                <TableHead className="relative cursor-pointer" onClick={() => handleSort('industry')}>
+                  <div className="flex items-center gap-1">
+                    Industry
+                    {sortState.column === 'industry' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-56" sideOffset={5}>
+                        {[...industries].sort().map(industry => (
+                          <DropdownMenuCheckboxItem
+                            key={industry}
+                            checked={selectedIndustries.includes(industry)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedIndustries(prev => [...prev, industry]);
+                              } else {
+                                setSelectedIndustries(prev => prev.filter(i => i !== industry));
+                              }
+                            }}
+                          >
+                            {industry}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setSelectedIndustries([])}>
+                          Clear All
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sortedMergers.slice(currentStartIndex, currentStartIndex + rowsPerPage).map((merger) => (
-            <TableRow 
-              key={merger.id}
-              id={`merger-row-${merger.id}`}
-              className={cn(
-                highlightedMergerId === merger.id && "bg-primary/5",
-                "transition-colors hover:bg-muted/50 cursor-pointer"
-              )}
-              onClick={() => onRowClick(merger)}
-            >
-              <TableCell>
-                <div className="font-medium">{merger.target}</div>
-              </TableCell>
-              <TableCell>
-                <div className="text-sm">{merger.acquirer}</div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-1">
-                  <span>{merger.industry}</span>
-                  {isIndustryFollowed(merger.industry) && (
-                    <Bell className="h-3 w-3 ml-1 text-primary" />
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                {format(merger.startDate, "MMM d, yyyy")}
-              </TableCell>
-              <TableCell>
-                <Badge
+                </TableHead>
+                <TableHead className="relative cursor-pointer" onClick={() => handleSort('filing_date')}>
+                  <div className="flex items-center gap-1">
+                    Filing Date
+                    {sortState.column === 'filing_date' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" sideOffset={5}>
+                        <DropdownMenuItem onClick={() => setDateFilter('all')}>
+                          <Check className={cn("mr-2 h-4 w-4", dateFilter === 'all' ? "opacity-100" : "opacity-0")} />
+                          All Time
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDateFilter('last30days')}>
+                          <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last30days' ? "opacity-100" : "opacity-0")} />
+                          Last 30 days
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDateFilter('last90days')}>
+                          <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last90days' ? "opacity-100" : "opacity-0")} />
+                          Last 90 days
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDateFilter('last6months')}>
+                          <Check className={cn("mr-2 h-4 w-4", dateFilter === 'last6months' ? "opacity-100" : "opacity-0")} />
+                          Last 6 months
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDateFilter('lastyear')}>
+                          <Check className={cn("mr-2 h-4 w-4", dateFilter === 'lastyear' ? "opacity-100" : "opacity-0")} />
+                          Last year
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableHead>
+                <TableHead className="relative cursor-pointer text-left" onClick={() => handleSort('status')}>
+                  <div className="flex items-center gap-1">
+                    <span>Status</span>
+                    {sortState.column === 'status' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" sideOffset={5}>
+                        <DropdownMenuCheckboxItem
+                          checked={selectedStatuses.includes('under_review_phase1')}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedStatuses(prev => [...prev, 'under_review_phase1']);
+                            } else {
+                              setSelectedStatuses(prev => prev.filter(s => s !== 'under_review_phase1'));
+                            }
+                          }}
+                        >
+                          Under Review (Phase 1)
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={selectedStatuses.includes('under_review_phase2')}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedStatuses(prev => [...prev, 'under_review_phase2']);
+                            } else {
+                              setSelectedStatuses(prev => prev.filter(s => s !== 'under_review_phase2'));
+                            }
+                          }}
+                        >
+                          Under Review (Phase 2)
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuSeparator />
+                        {Object.entries(outcomeConfig)
+                          .filter(([key]) => key !== 'under_review')
+                          .map(([key, config]) => (
+                            <DropdownMenuCheckboxItem
+                              key={key}
+                              checked={selectedStatuses.includes(key)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedStatuses(prev => [...prev, key]);
+                                } else {
+                                  setSelectedStatuses(prev => prev.filter(s => s !== key));
+                                }
+                              }}
+                            >
+                              {config.label}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setSelectedStatuses([])}>
+                          Clear All
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableHead>
+                <TableHead className="relative cursor-pointer" onClick={() => handleSort('duration')}>
+                  <div className="flex items-center gap-1">
+                    Duration
+                    {sortState.column === 'duration' && sortState.direction !== 'none' ? (
+                      sortState.direction === 'asc' ? (
+                        <SortAsc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      ) : (
+                        <SortDesc className="h-3.5 w-3.5 text-muted-foreground/70" />
+                      )
+                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 cursor-pointer ml-1" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-56" sideOffset={5}>
+                        <div className="p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">Min:</span>
+                            <Input 
+                              type="number"
+                              placeholder="Min days" 
+                              value={durationFilter.min}
+                              onChange={(e) => setDurationFilter(prev => ({...prev, min: e.target.value}))}
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">Max:</span>
+                            <Input 
+                              type="number"
+                              placeholder="Max days" 
+                              value={durationFilter.max}
+                              onChange={(e) => setDurationFilter(prev => ({...prev, max: e.target.value}))}
+                              className="w-full"
+                            />
+                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full"
+                            onClick={() => setDurationFilter({min: '', max: ''})}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayedMergers.map((merger) => (
+                <TableRow 
+                  key={merger.id}
                   className={cn(
-                    "inline-flex w-auto px-2 py-0.5 text-xs",
-                    outcomeConfig[merger.outcome].bgColor,
-                    outcomeConfig[merger.outcome].textColor
+                    "cursor-pointer", 
+                    highlightedMergerId === merger.id && "bg-primary/5"
                   )}
+                  onClick={() => onRowClick(merger)}
                 >
-                  {getStatusDisplay(merger)}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {calculateDurationDays(merger)} business days
-              </TableCell>
-              <TableCell className="text-right">
-                <FollowButton merger={merger} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      
-      <div className="flex items-center justify-between px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground">
-          Showing {Math.min(sortedMergers.length, currentStartIndex + 1)} to {Math.min(sortedMergers.length, currentStartIndex + rowsPerPage)} of {sortedMergers.length} mergers
+                  <TableCell>
+                    <div className="font-medium">{merger.target}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{merger.acquirer}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <span>{merger.industry}</span>
+                      {isIndustryFollowed(merger.industry) && (
+                        <Bell className="h-3 w-3 ml-1 text-primary" />
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {format(merger.startDate, "MMM d, yyyy")}
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-24 flex justify-start">
+                      <Badge 
+                        className={cn(
+                          'whitespace-nowrap',
+                          getStatusColor(merger.outcome, merger.hasPhase2).bg,
+                          getStatusColor(merger.outcome, merger.hasPhase2).text
+                        )}
+                      >
+                        {merger.hasPhase2 && merger.outcome === 'under_review' 
+                          ? 'Under Review (Phase 2)' 
+                          : getStatusDisplay(merger)}
+                      </Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {calculateDurationDays(merger)} business days
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <FollowButton merger={merger} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
         
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentStartIndex(Math.max(0, currentStartIndex - rowsPerPage))}
-            disabled={currentStartIndex === 0}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentStartIndex(Math.min(sortedMergers.length - 1, currentStartIndex + rowsPerPage))}
-            disabled={currentStartIndex + rowsPerPage >= sortedMergers.length}
-          >
-            Next
-          </Button>
+        <div className="flex items-center justify-between px-4 py-3 border-t">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium">
+              Showing {displayedMergers.length > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + pageSize, filteredMergers.length)} of {filteredMergers.length} total mergers
+            </span>
+            
+            <div className="flex items-center ml-4">
+              <span className="text-sm mr-2">Items per page:</span>
+              <select
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={filteredMergers.length}>All</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+            >
+              First
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              Previous
+            </Button>
+            
+            <div className="flex items-center bg-muted px-2 py-1 rounded-md">
+              <span className="text-sm font-medium">Page {page} of {pageCount}</span>
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.min(pageCount, p + 1))}
+              disabled={page === pageCount}
+            >
+              Next
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(pageCount)}
+              disabled={page === pageCount}
+            >
+              Last
+            </Button>
+          </div>
         </div>
       </div>
     </div>

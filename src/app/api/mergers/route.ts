@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchMergers, createMerger } from '@/lib/supabase/mergerUtils';
 import { Merger } from '@/types/merger';
 
-// GET /api/mergers - Fetch all mergers
-export async function GET() {
+// GET /api/mergers - Fetch all mergers with optional limit parameter
+export async function GET(request: NextRequest) {
   try {
-    const mergers = await fetchMergers();
+    // Get the limit parameter from the query string (default to 10000)
+    const url = new URL(request.url);
+    const limit = url.searchParams.get('limit') || '10000';
+    
+    const mergers = await fetchMergers(parseInt(limit));
     return NextResponse.json(mergers);
   } catch (error) {
     console.error('Error fetching mergers:', error);
