@@ -605,6 +605,7 @@ export function AskSearchModal({ isOpen, onClose, allMergers }: AskSearchModalPr
                       currentStartIndex={0}
                       itemsPerPage={10}
                       setCurrentStartIndex={() => {}}
+                      openMergerDetails={handleRowClick}
                     />
                   </div>
                 ) : isSearching || isAiLoading ? (
